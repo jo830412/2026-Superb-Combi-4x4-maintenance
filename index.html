@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🚗 新 Superb 保養維修紀錄</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <style>
+/* ============================================================
+   CSS 變數 & 重設
+   ============================================================ */
+:root {
+  --bg-base: #0d1117;
+  --bg-card: #161b22;
+  --bg-card-hover: #1c2333;
+  --bg-input: #21262d;
+  --border: #30363d;
+  --border-focus: #58a6ff;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+
+  --blue:   #58a6ff;
+  --blue-bg: rgba(88, 166, 255, 0.08);
+  --green:  #3fb950;
+  --green-bg: rgba(63, 185, 80, 0.08);
+  --purple: #bc8cff;
+  --purple-bg: rgba(188, 140, 255, 0.08);
+  --orange: #f0883e;
+  --orange-bg: rgba(240, 136, 62, 0.08);
+  --red:    #f85149;
+  --red-bg: rgba(248, 81, 73, 0.08);
+  --yellow: #d29922;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --shadow: 0 2px 12px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 24px rgba(0,0,0,0.5);
+
+  --transition: 0.18s ease;
+
+  font-size: 15px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Noto Sans TC', 'Inter', sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  padding-bottom: 60px;
+}
+
+/* ============================================================
+   Header
+   ============================================================ */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(13, 17, 23, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-icon {
+  font-size: 2rem;
+  filter: drop-shadow(0 0 8px rgba(88,166,255,0.4));
+}
+.logo-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.logo-sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.sync-status:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+.sync-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.sync-ok::before { background: var(--green); }
+.sync-syncing::before {
+  background: var(--yellow);
+  box-shadow: 0 0 0 4px rgba(210,153,34,0.12);
+}
+.sync-error {
+  color: var(--red);
+  border-color: rgba(248,81,73,0.45);
+  background: var(--red-bg);
+}
+.sync-error::before { background: var(--red); }
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: var(--transition);
+  font-family: inherit;
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--blue);
+  color: #fff;
+}
+.btn-primary:hover { background: #79b8ff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88,166,255,0.35); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); }
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+}
+.btn-danger:hover { background: #ff7070; }
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+}
+
+/* ============================================================
+   Stats Cards
+   ============================================================ */
+.stats-section {
+  max-width: 1200px;
+  margin: 28px auto 0;
+  padding: 0 24px;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: var(--transition);
+}
+.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.stat-icon { font-size: 2rem; flex-shrink: 0; }
+.stat-value {
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.stat-content {
+  flex: 1;
+  min-width: 0;
+}
+.stat-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stat-action {
+  padding: 3px 8px;
+  font-size: 0.72rem;
+}
+.stat-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.stat-blue  { border-left: 3px solid var(--blue);   }
+.stat-green { border-left: 3px solid var(--green);  }
+.stat-purple { border-left: 3px solid var(--purple);}
+.stat-orange { border-left: 3px solid var(--orange);}
+.stat-blue  .stat-value { color: var(--blue);   }
+.stat-green .stat-value { color: var(--green);  }
+.stat-purple .stat-value { color: var(--purple);}
+.stat-orange .stat-value { color: var(--orange);}
+
+/* ============================================================
+   Consumable Trackers
+   ============================================================ */
+.trackers-section {
+  max-width: 1200px;
+  margin: 16px auto 0;
+  padding: 0 24px;
+}
+.trackers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+.tracker-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  min-height: 108px;
+}
+.tracker-ok { border-left-color: var(--green); }
+.tracker-soon { border-left-color: var(--orange); }
+.tracker-due { border-left-color: var(--red); }
+.tracker-missing { border-left-color: var(--text-muted); }
+.tracker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tracker-name {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.tracker-value {
+  font-size: 1.05rem;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.tracker-ok .tracker-value { color: var(--green); }
+.tracker-soon .tracker-value { color: var(--orange); }
+.tracker-due .tracker-value { color: var(--red); }
+.tracker-meta {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* ============================================================
+   Charts
+   ============================================================ */
+.charts-section {
+  max-width: 1200px;
+  margin: 24px auto 0;
+  padding: 0 24px;
+}
+.charts-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+}
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+}
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.chart-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.chart-wide { grid-column: 1; }
+
+/* ============================================================
+   Filter Bar
+   ============================================================ */
+.filter-section {
+  max-width: 1200px;
+  margin: 24px auto 0;
+  padding: 0 24px;
+}
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+}
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.9rem;
+}
+.search-input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 9px 12px 9px 36px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  transition: var(--transition);
+  outline: none;
+}
+.search-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(88,166,255,0.12); }
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+  font-weight: 500;
+}
+.pill:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.pill-active { background: var(--blue); border-color: var(--blue); color: #fff !important; }
+.pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  font-size: 0.72rem;
+}
+.year-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.year-select:focus { border-color: var(--border-focus); }
+.filter-summary {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+/* ============================================================
+   Records
+   ============================================================ */
+.records-section {
+  max-width: 1200px;
+  margin: 16px auto 0;
+  padding: 0 24px;
+}
+.record-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: 120px 90px auto 1fr 120px 100px;
+  align-items: center;
+  gap: 16px;
+  transition: var(--transition);
+  cursor: default;
+}
+.record-item:hover {
+  background: var(--bg-card-hover);
+  border-color: #444c56;
+  transform: translateX(2px);
+}
+.record-date {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.record-date strong {
+  display: block;
+  font-size: 0.98rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.record-mileage {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  text-align: right;
+}
+.record-mileage strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.record-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-保養  { background: var(--green-bg);  color: var(--green);  }
+.badge-維修  { background: var(--red-bg);    color: var(--red);    }
+.badge-更換  { background: var(--blue-bg);   color: var(--blue);   }
+.badge-改裝升級 { background: var(--purple-bg); color: var(--purple); }
+.badge-其他  { background: var(--bg-input);  color: var(--text-secondary); }
+.badge-status { background: var(--bg-input); color: var(--text-muted); }
+.record-status {
+  opacity: 0.72;
+}
+.record-status:hover {
+  opacity: 0.92;
+}
+
+.record-detail {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.record-note {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.record-cost {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--green);
+  text-align: right;
+  white-space: nowrap;
+}
+.record-cost.cost-zero { color: var(--text-muted); }
+.record-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.mobile-label {
+  display: none;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+.field-value { min-width: 0; }
+
+/* 列表標題列 */
+.records-header {
+  display: grid;
+  grid-template-columns: 120px 90px auto 1fr 120px 100px;
+  gap: 16px;
+  padding: 8px 20px;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ============================================================
+   Empty State
+   ============================================================ */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+}
+.empty-icon { font-size: 3rem; margin-bottom: 12px; }
+
+/* ============================================================
+   Modal
+   ============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } }
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 580px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.2s ease;
+  box-shadow: var(--shadow-md);
+}
+.modal-sm { max-width: 380px; }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } }
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h2 { font-size: 1.05rem; font-weight: 700; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+.modal-close:hover { background: var(--bg-input); color: var(--text-primary); }
+.modal-body { padding: 20px 24px; }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ============================================================
+   Form
+   ============================================================ */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.form-group-full { grid-column: 1 / -1; }
+.form-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+.required { color: var(--red); }
+.form-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 9px 13px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: var(--transition);
+  outline: none;
+}
+.form-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(88,166,255,0.12);
+}
+.form-input option { background: var(--bg-card); }
+.form-textarea { resize: vertical; min-height: 80px; }
+.form-help {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+.form-message {
+  display: none;
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.form-message-error {
+  display: block;
+  background: var(--red-bg);
+  border: 1px solid rgba(248,81,73,0.38);
+  color: #ffb4ad;
+}
+.form-message-info {
+  display: block;
+  background: var(--blue-bg);
+  border: 1px solid rgba(88,166,255,0.35);
+  color: #a5d6ff;
+}
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .charts-grid { grid-template-columns: 1fr; }
+  .record-item {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .records-header { display: none; }
+  .mobile-label { display: block; }
+  .record-field {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .record-date, .record-mileage, .record-cost { text-align: left; }
+  .record-detail {
+    grid-column: 1 / -1;
+    display: block;
+  }
+  .record-detail .mobile-label { margin-bottom: 4px; }
+  .record-actions { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  .header-inner { padding: 12px 16px; align-items: flex-start; }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .stats-section, .trackers-section, .charts-section, .filter-section, .records-section { padding: 0 16px; }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .trackers-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card { padding: 14px; }
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .record-item { grid-template-columns: 1fr; }
+  .header-actions .btn { padding: 8px 12px; }
+  .sync-status { width: 100%; justify-content: center; order: 3; }
+}
+  </style>
+</head>
+<body>
+  <!-- 頂部導覽列 -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-logo">
+        <span class="logo-icon">🚗</span>
+        <div>
+          <h1 class="logo-title">新 Superb 保養維修紀錄</h1>
+          <p class="logo-sub" id="vehicleInfo">New Skoda Superb</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="sync-status sync-syncing" id="syncStatus" type="button" title="點擊重試同步">
+          同步中
+        </button>
+        <button class="btn btn-primary" id="btnAddRecord">
+          <span>＋</span> 新增紀錄
+        </button>
+        <button class="btn btn-ghost" id="btnExport">
+          ↓ 匯出 CSV
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 統計卡片區 -->
+  <section class="stats-section">
+    <div class="stats-grid">
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">📊</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statTotalRecords">—</div>
+          <div class="stat-label">總紀錄筆數</div>
+        </div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon">💰</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statTotalCost">—</div>
+          <div class="stat-label">總花費 (NT$)</div>
+        </div>
+      </div>
+      <div class="stat-card stat-purple">
+        <div class="stat-icon">📍</div>
+        <div class="stat-content">
+          <div class="stat-topline">
+            <div class="stat-value" id="statCurrentMileage">—</div>
+            <button class="btn btn-ghost btn-sm stat-action" id="btnUpdateMileage" type="button">更新</button>
+          </div>
+          <div class="stat-label">目前里程 (km)</div>
+        </div>
+      </div>
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">🔧</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statLastMaintenance">—</div>
+          <div class="stat-label">上次保養</div>
+        </div>
+      </div>
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">🧾</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statRecentCost">—</div>
+          <div class="stat-label">近 12 月花費</div>
+        </div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon">/km</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statCostPerKm">—</div>
+          <div class="stat-label">每公里維護成本</div>
+        </div>
+      </div>
+      <div class="stat-card stat-purple">
+        <div class="stat-icon">⏱</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statNextMaintenance">—</div>
+          <div class="stat-label">下次保養建議</div>
+        </div>
+      </div>
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">⛽</div>
+        <div class="stat-content">
+          <div class="stat-topline">
+            <div class="stat-value" id="statFuelAdditive">—</div>
+            <button class="btn btn-ghost btn-sm stat-action" id="btnAddFuelAdditive" type="button">已添加</button>
+          </div>
+          <div class="stat-label" id="statFuelAdditiveLabel">汽油精追蹤</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 耗材提醒區 -->
+  <section class="trackers-section">
+    <div class="trackers-grid" id="consumableTrackers"></div>
+  </section>
+
+  <!-- 圖表區 -->
+  <section class="charts-section">
+    <div class="charts-grid">
+      <!-- 費用趨勢圖 -->
+      <div class="chart-card chart-wide">
+        <div class="chart-header">
+          <h2 class="chart-title">年度費用趨勢</h2>
+          <div class="chart-legend" id="costLegend"></div>
+        </div>
+        <div style="position:relative;height:220px"><canvas id="costChart"></canvas></div>
+      </div>
+      <!-- 類別圓餅圖 -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <h2 class="chart-title">費用類別分佈</h2>
+        </div>
+        <div style="position:relative;height:220px"><canvas id="categoryChart"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 篩選 & 搜尋列 -->
+  <section class="filter-section">
+    <div class="filter-bar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" class="search-input" placeholder="搜尋紀錄內容..."/>
+      </div>
+      <div class="filter-pills" id="filterPills">
+        <button class="pill pill-active" data-cat="全部">全部</button>
+        <button class="pill" data-cat="保養">保養</button>
+        <button class="pill" data-cat="維修">維修</button>
+        <button class="pill" data-cat="更換">更換</button>
+        <button class="pill" data-cat="改裝升級">改裝升級</button>
+        <button class="pill" data-cat="其他">其他</button>
+      </div>
+      <select id="yearFilter" class="year-select">
+        <option value="">所有年份</option>
+      </select>
+    </div>
+    <div class="filter-summary" id="filterSummary">顯示 0 筆</div>
+  </section>
+
+  <!-- 紀錄列表 -->
+  <section class="records-section">
+    <div id="recordsContainer"></div>
+    <div id="emptyState" class="empty-state" style="display:none;">
+      <div class="empty-icon">🔍</div>
+      <p>找不到符合條件的紀錄</p>
+    </div>
+  </section>
+
+  <!-- 新增/編輯 Modal -->
+  <div id="modal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">新增保養紀錄</h2>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="recordForm">
+          <input type="hidden" id="editIndex" value="-1"/>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">日期 <span class="required">*</span></label>
+              <input type="date" id="formDate" class="form-input" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">里程 (km)</label>
+              <input type="number" id="formMileage" class="form-input" placeholder="例：120000" min="0" step="1"/>
+              <div class="form-help" id="mileageHint"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">類別 <span class="required">*</span></label>
+              <select id="formCategory" class="form-input" required>
+                <option value="">請選擇</option>
+                <option value="保養">保養</option>
+                <option value="維修">維修</option>
+                <option value="更換">更換</option>
+                <option value="改裝升級">改裝升級</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">費用 (NT$)</label>
+              <input type="number" id="formCost" class="form-input" placeholder="0" min="0"/>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">常用項目</label>
+              <select id="formTemplate" class="form-input">
+                <option value="">不套用模板</option>
+                <option value="oil">機油保養</option>
+                <option value="tire">輪胎更換</option>
+                <option value="battery">電瓶更換</option>
+                <option value="brake">煞車系統</option>
+                <option value="transmission">變速箱保養</option>
+              </select>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">詳細內容 <span class="required">*</span></label>
+              <textarea id="formDetail" class="form-input form-textarea" rows="3" placeholder="例：機油(5W-30)、機油芯..." required></textarea>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">備註</label>
+              <input type="text" id="formNote" class="form-input" placeholder="任何補充說明..."/>
+            </div>
+            <div class="form-message" id="formMessage"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="btnCancel">取消</button>
+            <button type="submit" class="btn btn-primary">💾 儲存紀錄</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 目前里程更新 Modal -->
+  <div id="mileageModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>更新目前里程</h2>
+        <button class="modal-close" id="mileageModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="mileageForm">
+          <div class="form-grid">
+            <div class="form-group form-group-full">
+              <label class="form-label">目前里程 (km) <span class="required">*</span></label>
+              <input type="number" id="currentMileageInput" class="form-input" min="0" step="1" placeholder="例：123456" required/>
+              <div class="form-help" id="currentMileageHint"></div>
+            </div>
+            <div class="form-message" id="mileageMessage"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="mileageCancelBtn">取消</button>
+            <button type="submit" class="btn btn-primary">💾 更新里程</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 汽油精添加 Modal -->
+  <div id="fuelModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>記錄汽油精</h2>
+        <button class="modal-close" id="fuelModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="fuelForm">
+          <div class="form-grid">
+            <div class="form-group form-group-full">
+              <label class="form-label">里程 (km) <span class="required">*</span></label>
+              <input type="number" id="fuelMileageInput" class="form-input" min="0" step="1" required/>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">費用 (NT$)</label>
+              <input type="number" id="fuelCostInput" class="form-input" min="0" step="1" placeholder="0"/>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">備註</label>
+              <input type="text" id="fuelNoteInput" class="form-input" placeholder="例：加油時添加、品牌..."/>
+            </div>
+            <div class="form-message" id="fuelMessage"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="fuelCancelBtn">取消</button>
+            <button type="submit" class="btn btn-primary">💾 記錄添加</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 刪除確認 Modal -->
+  <div id="deleteModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>確認刪除</h2>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);line-height:1.6">確定要刪除這筆紀錄嗎？此動作無法復原。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="deleteCancelBtn">取消</button>
+        <button class="btn btn-danger" id="deleteConfirmBtn">🗑 確認刪除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+// ============================================================
+// 初始資料（從 Excel 匯出）
+// ============================================================
+const INITIAL_DATA = [];
+
+// ============================================================
+// 雲端與本地儲存管理
+// ============================================================
+const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
+const API_URL = "https://script.google.com/macros/s/AKfycbyIpvvy_6masE9eErWlXO9nbAZ-YtsZNG1YUBa0MNTTlrPgJDjR9BinSFjORWDT9pwYSw/exec";
+
+let records = [];
+let currentFilter = "全部";
+let currentSearch = "";
+let currentYear = "";
+let deleteTargetIndex = -1;
+let costChart = null;
+let catChart = null;
+let lastSyncAt = null;
+
+const RECORD_TEMPLATES = {
+  oil: {
+    category: "保養",
+    detail: "機油、機油芯",
+    note: "例行機油保養"
+  },
+  tire: {
+    category: "更換",
+    detail: "輪胎更換、安裝、平衡",
+    note: "可補充品牌、規格與胎壓"
+  },
+  battery: {
+    category: "更換",
+    detail: "電瓶更換",
+    note: "可補充品牌、容量與保固"
+  },
+  brake: {
+    category: "維修",
+    detail: "煞車皮、煞車油、煞車系統檢查",
+    note: ""
+  },
+  transmission: {
+    category: "保養",
+    detail: "變速箱油、濾網、油底殼檢查",
+    note: "變速箱相關保養"
+  }
+};
+
+const CONSUMABLE_RULES = [
+  { name: "機油保養", icon: "🛢", terms: ["機油"], intervalKm: 10000, dueKm: 12000 },
+  { name: "變速箱油", icon: "⚙", terms: ["變速箱油", "閥體油"], intervalKm: 40000, dueKm: 60000 },
+  { name: "輪胎", icon: "輪", terms: ["輪胎"], intervalKm: 40000, dueKm: 50000 },
+  { name: "電瓶", icon: "🔋", terms: ["電瓶"], intervalMonths: 36, dueMonths: 48 },
+  { name: "煞車油", icon: "制", terms: ["煞車油"], intervalMonths: 24, dueMonths: 36 },
+  { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], intervalKm: 10000, dueKm: 15000 }
+];
+
+async function initData() {
+  document.getElementById("recordsContainer").innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>正在從雲端同步資料...</p></div>';
+  setSyncStatus("syncing", "同步中");
+  
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    
+    if (Array.isArray(data) && data.length > 0) {
+      records = data;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      lastSyncAt = new Date();
+      setSyncStatus("ok", "已同步 " + formatTime(lastSyncAt));
+    } else {
+      // 雲端是空的，檢查本機是否以前有資料
+      const saved = localStorage.getItem(STORAGE_KEY);
+      let seededFromLocal = false;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+           records = parsed;
+           seededFromLocal = true;
+           await syncToCloud(records); // 把舊資料推上雲端
+        }
+      }
+      if (!seededFromLocal) {
+        // 如果本機也沒資料，才用 INITIAL_DATA 兜底並推上雲端
+        records = [...INITIAL_DATA];
+        await syncToCloud(records);
+      }
+    }
+  } catch(e) {
+    console.error("讀取雲端失敗，使用本機資料", e);
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) records = JSON.parse(saved);
+    else records = [...INITIAL_DATA];
+    setSyncStatus("error", "雲端讀取失敗，本機模式");
+  }
+  refresh();
+}
+
+async function syncToCloud(data) {
+  setSyncStatus("syncing", "同步中");
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      redirect: 'follow'
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    lastSyncAt = new Date();
+    setSyncStatus("ok", "已同步 " + formatTime(lastSyncAt));
+    return true;
+  } catch(e) {
+    console.error("同步至雲端失敗", e);
+    setSyncStatus("error", "同步失敗，點擊重試");
+    return false;
+  }
+}
+
+function saveRecords(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  syncToCloud(data); // 背景同步
+}
+
+// ============================================================
+// 狀態
+// ============================================================
+function formatTime(date) {
+  return date.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+}
+
+function setSyncStatus(state, text) {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+  el.className = "sync-status sync-" + state;
+  el.textContent = text;
+  el.title = state === "error" ? "點擊重試同步" : "最後同步狀態";
+}
+
+// ============================================================
+// 工具函式
+// ============================================================
+function formatCost(n) {
+  if (!n) return "NT$ 0";
+  return "NT$ " + n.toLocaleString("zh-TW");
+}
+function formatCompactCost(n) {
+  if (!n) return "0";
+  return n >= 10000 ? (n / 10000).toFixed(1) + " 萬" : n.toLocaleString("zh-TW");
+}
+function asNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+function formatMileage(n) {
+  if (n == null || n === "") return "—";
+  return Number(n).toLocaleString("zh-TW") + " km";
+}
+function getYear(dateStr) {
+  return dateStr ? dateStr.substring(0, 4) : "";
+}
+function parseDate(dateStr) {
+  const d = dateStr ? new Date(dateStr + "T00:00:00") : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+}
+function addMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+function diffMonths(from, to = new Date()) {
+  if (!from) return 0;
+  return Math.max(0, (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth());
+}
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[ch]));
+}
+function getMaxMileage(excludeIndex = -1) {
+  const values = records
+    .map((r, i) => i === excludeIndex ? null : Number(r.mileage))
+    .filter(v => Number.isFinite(v) && v > 0);
+  return values.length ? Math.max(...values) : 0;
+}
+function getCurrentMileage() {
+  return getMaxMileage();
+}
+function isMileageUpdateRecord(r) {
+  return r && r.category === "其他" && r.detail === "目前里程更新";
+}
+function getServiceRecords() {
+  return records.filter(r => !isMileageUpdateRecord(r));
+}
+function recordMatchesTerms(r, terms) {
+  if (isMileageUpdateRecord(r)) return false;
+  const text = `${r.detail || ""} ${r.note || ""}`;
+  return terms.some(term => text.includes(term));
+}
+function getTodayString() {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+function getCategoryEmoji(cat) {
+  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 改裝升級:"⚡", 其他:"📌" };
+  return map[cat] || "📌";
+}
+
+// ============================================================
+// 統計卡片
+// ============================================================
+function updateStats() {
+  const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
+  const serviceRecords = getServiceRecords();
+  const sortedServiceRecords = [...serviceRecords].sort((a, b) => b.date.localeCompare(a.date));
+  const today = new Date();
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+  document.getElementById("statTotalRecords").textContent = serviceRecords.length;
+
+  const total = serviceRecords.reduce((s, r) => s + asNumber(r.cost), 0);
+  document.getElementById("statTotalCost").textContent = total > 0
+    ? formatCompactCost(total)
+    : "0";
+
+  const maxMile = getCurrentMileage();
+  document.getElementById("statCurrentMileage").textContent =
+    maxMile > 0 ? maxMile.toLocaleString("zh-TW") : "—";
+
+  const lastMaint = sortedServiceRecords.find(r => r.category === "保養");
+  document.getElementById("statLastMaintenance").textContent =
+    lastMaint ? lastMaint.date.substring(0, 7) : "—";
+
+  const recentTotal = serviceRecords.reduce((sum, r) => {
+    const d = parseDate(r.date);
+    return d && d >= oneYearAgo ? sum + asNumber(r.cost) : sum;
+  }, 0);
+  document.getElementById("statRecentCost").textContent = recentTotal > 0
+    ? formatCompactCost(recentTotal)
+    : "0";
+
+  const maintenanceCost = serviceRecords
+    .filter(r => r.category !== "改裝升級" && r.category !== "其他")
+    .reduce((sum, r) => sum + asNumber(r.cost), 0);
+  const mileageValues = records.map(r => Number(r.mileage)).filter(v => Number.isFinite(v) && v > 0);
+  const mileageSpan = mileageValues.length > 1 ? Math.max(...mileageValues) - Math.min(...mileageValues) : 0;
+  document.getElementById("statCostPerKm").textContent = mileageSpan > 0
+    ? "NT$ " + (maintenanceCost / mileageSpan).toFixed(1)
+    : "—";
+
+  const nextMaintEl = document.getElementById("statNextMaintenance");
+  const lastMaintMileage = lastMaint ? Number(lastMaint.mileage) : null;
+  if (lastMaint && Number.isFinite(lastMaintMileage) && lastMaintMileage > 0) {
+    nextMaintEl.textContent = (lastMaintMileage + 10000).toLocaleString("zh-TW") + " km";
+  } else if (lastMaint && parseDate(lastMaint.date)) {
+    nextMaintEl.textContent = addMonths(parseDate(lastMaint.date), 12).toISOString().slice(0, 7);
+  } else {
+    nextMaintEl.textContent = "—";
+  }
+
+  const fuelAdditiveEl = document.getElementById("statFuelAdditive");
+  const fuelAdditiveLabel = document.getElementById("statFuelAdditiveLabel");
+  const lastFuelAdditive = sorted.find(r => recordMatchesTerms(r, ["汽油精"]));
+  const lastFuelMileage = lastFuelAdditive ? Number(lastFuelAdditive.mileage) : null;
+  if (!lastFuelAdditive) {
+    fuelAdditiveEl.textContent = "未記錄";
+    fuelAdditiveLabel.textContent = "每 3,000-4,000 km 添加";
+  } else if (maxMile > 0 && Number.isFinite(lastFuelMileage) && lastFuelMileage > 0) {
+    const usedKm = Math.max(maxMile - lastFuelMileage, 0);
+    if (usedKm >= 4000) {
+      fuelAdditiveEl.textContent = "該添加了";
+    } else if (usedKm >= 3000) {
+      fuelAdditiveEl.textContent = "可添加";
+    } else {
+      fuelAdditiveEl.textContent = "剩 " + (3000 - usedKm).toLocaleString("zh-TW") + " km";
+    }
+    fuelAdditiveLabel.textContent =
+      "目前 " + maxMile.toLocaleString("zh-TW") +
+      " / 上次 " + lastFuelMileage.toLocaleString("zh-TW") +
+      " / 已跑 " + usedKm.toLocaleString("zh-TW") + " km";
+  } else {
+    fuelAdditiveEl.textContent = lastFuelAdditive.date ? lastFuelAdditive.date.substring(0, 7) : "已記錄";
+    fuelAdditiveLabel.textContent = "缺少上次添加里程";
+  }
+}
+
+function getLatestMatchingRecord(terms) {
+  return [...records]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .find(r => recordMatchesTerms(r, terms));
+}
+
+function buildTrackerState(rule) {
+  const currentMileage = getCurrentMileage();
+  const latest = getLatestMatchingRecord(rule.terms);
+  if (!latest) {
+    return {
+      status: "missing",
+      value: "未記錄",
+      meta: rule.intervalKm
+        ? `建議每 ${rule.intervalKm.toLocaleString("zh-TW")} km 檢查`
+        : `建議每 ${rule.intervalMonths} 個月檢查`
+    };
+  }
+
+  if (rule.intervalKm) {
+    const lastMileage = Number(latest.mileage);
+    if (!Number.isFinite(lastMileage) || lastMileage <= 0 || !currentMileage) {
+      return {
+        status: "missing",
+        value: "缺里程",
+        meta: latest.date ? `最近 ${latest.date}` : "最近紀錄缺少里程"
+      };
+    }
+    const usedKm = Math.max(currentMileage - lastMileage, 0);
+    if (usedKm >= rule.dueKm) {
+      return {
+        status: "due",
+        value: "該處理",
+        meta: `上次 ${lastMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
+      };
+    }
+    if (usedKm >= rule.intervalKm) {
+      return {
+        status: "soon",
+        value: "可安排",
+        meta: `上次 ${lastMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
+      };
+    }
+    return {
+      status: "ok",
+      value: "剩 " + (rule.intervalKm - usedKm).toLocaleString("zh-TW") + " km",
+      meta: `上次 ${lastMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
+    };
+  }
+
+  const latestDate = parseDate(latest.date);
+  if (!latestDate) {
+    return { status: "missing", value: "缺日期", meta: "最近紀錄缺少日期" };
+  }
+  const usedMonths = diffMonths(latestDate);
+  if (usedMonths >= rule.dueMonths) {
+    return {
+      status: "due",
+      value: "該處理",
+      meta: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
+    };
+  }
+  if (usedMonths >= rule.intervalMonths) {
+    return {
+      status: "soon",
+      value: "可安排",
+      meta: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
+    };
+  }
+  return {
+    status: "ok",
+    value: "剩 " + (rule.intervalMonths - usedMonths) + " 個月",
+    meta: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
+  };
+}
+
+function renderConsumableTrackers() {
+  const container = document.getElementById("consumableTrackers");
+  if (!container) return;
+  container.innerHTML = CONSUMABLE_RULES.map(rule => {
+    const state = buildTrackerState(rule);
+    return `
+      <div class="tracker-card tracker-${state.status}">
+        <div class="tracker-head">
+          <div class="tracker-name">${rule.icon} ${escapeHtml(rule.name)}</div>
+        </div>
+        <div class="tracker-value">${escapeHtml(state.value)}</div>
+        <div class="tracker-meta">${escapeHtml(state.meta)}</div>
+      </div>`;
+  }).join("");
+}
+
+// ============================================================
+// 年份篩選 Select
+// ============================================================
+function populateYearFilter() {
+  const years = [...new Set(records.map(r => getYear(r.date)).filter(Boolean))].sort((a,b)=>b-a);
+  const sel = document.getElementById("yearFilter");
+  sel.innerHTML = "<option value=\"\">所有年份</option>";
+  years.forEach(y => {
+    const opt = document.createElement("option");
+    opt.value = y; opt.textContent = y + " 年";
+    sel.appendChild(opt);
+  });
+  if (currentYear && !years.includes(currentYear)) currentYear = "";
+  sel.value = currentYear;
+}
+
+function updateFilterPills() {
+  const serviceRecords = getServiceRecords();
+  const counts = serviceRecords.reduce((map, r) => {
+    map[r.category] = (map[r.category] || 0) + 1;
+    return map;
+  }, {});
+
+  document.querySelectorAll("#filterPills .pill").forEach(btn => {
+    const cat = btn.dataset.cat;
+    const count = cat === "全部" ? serviceRecords.length : (counts[cat] || 0);
+    btn.innerHTML = `${escapeHtml(cat)}<span class="pill-count">${count}</span>`;
+  });
+}
+
+function updateFilterSummary(filtered) {
+  const el = document.getElementById("filterSummary");
+  if (!el) return;
+  const filteredServiceRecords = filtered.filter(r => !isMileageUpdateRecord(r));
+  const total = filteredServiceRecords.reduce((sum, r) => sum + asNumber(r.cost), 0);
+  const parts = [];
+  if (currentFilter !== "全部") parts.push(currentFilter);
+  if (currentYear) parts.push(currentYear + " 年");
+  if (currentSearch) parts.push("搜尋「" + currentSearch + "」");
+
+  const scope = parts.length ? "（" + parts.join(" / ") + "）" : "";
+  const statusCount = filtered.length - filteredServiceRecords.length;
+  const statusText = statusCount ? `，另有 ${statusCount} 筆里程狀態` : "";
+  el.textContent = `顯示 ${filteredServiceRecords.length} / ${getServiceRecords().length} 筆${scope}${statusText}，合計 ${formatCost(total)}`;
+}
+
+// ============================================================
+// 圖表
+// ============================================================
+function buildCharts() {
+  buildCostChart();
+  buildCategoryChart();
+}
+
+function buildCostChart() {
+  // 按年度加總費用
+  const yearMap = {};
+  getServiceRecords().forEach(r => {
+    const y = getYear(r.date);
+    if (!y) return;
+    yearMap[y] = (yearMap[y] || 0) + asNumber(r.cost);
+  });
+  const years = Object.keys(yearMap).sort();
+  const vals  = years.map(y => yearMap[y]);
+
+  const canvas = document.getElementById("costChart");
+  if (costChart) { costChart.destroy(); costChart = null; }
+
+  costChart = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: years,
+      datasets: [{
+        label: "年度費用 (NT$)",
+        data: vals,
+        backgroundColor: "rgba(88,166,255,0.65)",
+        borderColor: "rgba(88,166,255,1)",
+        borderWidth: 2,
+        borderRadius: 6,
+        hoverBackgroundColor: "rgba(121,184,255,0.85)"
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 600, easing: "easeOutQuart" },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#1c2333",
+          borderColor: "#30363d",
+          borderWidth: 1,
+          titleColor: "#e6edf3",
+          bodyColor: "#8b949e",
+          callbacks: {
+            label: ctx => "  NT$ " + ctx.raw.toLocaleString("zh-TW")
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(48,54,61,0.5)" },
+          ticks: { color: "#8b949e", font: { size: 11 } }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: "rgba(48,54,61,0.5)" },
+          ticks: {
+            color: "#8b949e",
+            font: { size: 11 },
+            callback: v => {
+              if (v >= 10000) return (v/10000).toFixed(0) + "萬";
+              return v.toLocaleString();
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function buildCategoryChart() {
+  const catColors = {
+    保養: "#3fb950", 維修: "#f85149", 更換: "#58a6ff",
+    改裝升級: "#bc8cff", 其他: "#484f58"
+  };
+  const catMap = {};
+  getServiceRecords().forEach(r => {
+    const cost = asNumber(r.cost);
+    if (!cost) return;
+    catMap[r.category] = (catMap[r.category] || 0) + cost;
+  });
+  const cats = Object.keys(catMap);
+  const vals  = cats.map(c => catMap[c]);
+  const colors = cats.map(c => catColors[c] || "#484f58");
+
+  const ctx = document.getElementById("categoryChart").getContext("2d");
+  if (catChart) catChart.destroy();
+
+  catChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: cats,
+      datasets: [{
+        data: vals,
+        backgroundColor: colors.map(c => c + "cc"),
+        borderColor: colors,
+        borderWidth: 2,
+        hoverOffset: 8
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "60%",
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { color: "#8b949e", font: { size: 11 }, padding: 12 }
+        },
+        tooltip: {
+          backgroundColor: "#1c2333",
+          borderColor: "#30363d",
+          borderWidth: 1,
+          titleColor: "#e6edf3",
+          bodyColor: "#8b949e",
+          callbacks: {
+            label: ctx => {
+              const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+              const pct = ((ctx.raw/total)*100).toFixed(1);
+              return "NT$ " + ctx.raw.toLocaleString("zh-TW") + " (" + pct + "%)";
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// ============================================================
+// 渲染紀錄列表
+// ============================================================
+function getFilteredRecords() {
+  let list = [...records];
+
+  // 類別篩選
+  if (currentFilter !== "全部") {
+    list = list.filter(r => r.category === currentFilter);
+  }
+  // 年份篩選
+  if (currentYear) {
+    list = list.filter(r => getYear(r.date) === currentYear);
+  }
+  // 文字搜尋
+  if (currentSearch) {
+    const q = currentSearch.toLowerCase();
+    list = list.filter(r =>
+      (r.detail || "").toLowerCase().includes(q) ||
+      (r.note   || "").toLowerCase().includes(q) ||
+      (r.category || "").toLowerCase().includes(q) ||
+      (r.date || "").includes(q)
+    );
+  }
+
+  // 日期排序：新到舊
+  list.sort((a, b) => b.date.localeCompare(a.date));
+  return list;
+}
+
+function renderRecords() {
+  const container = document.getElementById("recordsContainer");
+  const emptyState = document.getElementById("emptyState");
+  const filtered = getFilteredRecords();
+  updateFilterSummary(filtered);
+
+  if (filtered.length === 0) {
+    container.innerHTML = "";
+    emptyState.style.display = "block";
+    return;
+  }
+  emptyState.style.display = "none";
+
+  // 標題列
+  let html = `<div class="records-header">
+    <span>日期</span>
+    <span style="text-align:right">里程</span>
+    <span>類別</span>
+    <span>詳細內容</span>
+    <span style="text-align:right">費用</span>
+    <span style="text-align:right">操作</span>
+  </div>`;
+
+  filtered.forEach(r => {
+    // 在原始 records 中找出真實 index
+    const origIdx = records.indexOf(r);
+    const isStatus = isMileageUpdateRecord(r);
+    const year = getYear(r.date);
+    const monthDay = r.date ? r.date.substring(5) : "";
+    const emoji = getCategoryEmoji(r.category);
+    const safeCategory = escapeHtml(isStatus ? "里程狀態" : r.category);
+    const badgeClass = isStatus ? "badge-status" : "badge-" + escapeHtml(r.category);
+    const mileageValue = asNumber(r.mileage);
+    const costValue = asNumber(r.cost);
+    const noteHtml = r.note ? `<div class="record-note">📝 ${escapeHtml(r.note)}</div>` : "";
+
+    html += `
+    <div class="record-item ${isStatus ? "record-status" : ""}" data-idx="${origIdx}">
+      <div class="record-date record-field">
+        <span class="mobile-label">日期</span>
+        <span class="field-value"><strong>${monthDay}</strong>${year}</span>
+      </div>
+      <div class="record-mileage record-field">
+        <span class="mobile-label">里程</span>
+        <span class="field-value"><strong>${mileageValue ? mileageValue.toLocaleString("zh-TW") : "—"}</strong>${mileageValue ? "km" : ""}</span>
+      </div>
+      <div class="record-field">
+        <span class="mobile-label">類別</span>
+        <span class="record-badge ${badgeClass}">${isStatus ? "📍" : emoji} ${safeCategory}</span>
+      </div>
+      <div class="record-detail record-field">
+        <span class="mobile-label">詳細內容</span>
+        <span class="field-value">${r.detail ? escapeHtml(r.detail) : "—"}${noteHtml}</span>
+      </div>
+      <div class="record-cost record-field ${costValue ? "" : "cost-zero"}">
+        <span class="mobile-label">費用</span>
+        <span class="field-value">${costValue ? "NT$ " + costValue.toLocaleString("zh-TW") : "—"}</span>
+      </div>
+      <div class="record-actions">
+        <button class="btn btn-ghost btn-sm edit-btn" data-idx="${origIdx}" title="編輯">✏️</button>
+        <button class="btn btn-ghost btn-sm delete-btn" data-idx="${origIdx}" title="刪除">🗑️</button>
+      </div>
+    </div>`;
+  });
+
+  container.innerHTML = html;
+
+  // 綁定編輯/刪除按鈕
+  container.querySelectorAll(".edit-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      openEditModal(parseInt(btn.dataset.idx));
+    });
+  });
+  container.querySelectorAll(".delete-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      openDeleteModal(parseInt(btn.dataset.idx));
+    });
+  });
+}
+
+// ============================================================
+// 新增/編輯 Modal
+// ============================================================
+function showFormMessage(type, text) {
+  const el = document.getElementById("formMessage");
+  el.className = "form-message form-message-" + type;
+  el.textContent = text;
+}
+
+function clearFormMessage() {
+  const el = document.getElementById("formMessage");
+  el.className = "form-message";
+  el.textContent = "";
+  const saveBtn = document.querySelector("#recordForm button[type='submit']");
+  if (saveBtn) delete saveBtn.dataset.confirmedMileage;
+}
+
+function updateMileageHint(idx = parseInt(document.getElementById("editIndex").value)) {
+  const maxMileage = getMaxMileage(idx);
+  const el = document.getElementById("mileageHint");
+  el.textContent = maxMileage > 0
+    ? "目前最高里程 " + maxMileage.toLocaleString("zh-TW") + " km；補登舊資料可低於此數值。"
+    : "";
+}
+
+function applyRecordTemplate(key) {
+  const template = RECORD_TEMPLATES[key];
+  if (!template) return;
+  document.getElementById("formCategory").value = template.category;
+  document.getElementById("formDetail").value = template.detail;
+  if (!document.getElementById("formNote").value.trim()) {
+    document.getElementById("formNote").value = template.note;
+  }
+  clearFormMessage();
+}
+
+function openAddModal() {
+  document.getElementById("modalTitle").textContent = "新增保養紀錄";
+  document.getElementById("editIndex").value = "-1";
+  document.getElementById("recordForm").reset();
+  document.getElementById("formDate").value = getTodayString();
+  clearFormMessage();
+  updateMileageHint(-1);
+  document.getElementById("modal").style.display = "flex";
+}
+
+function openEditModal(idx) {
+  const r = records[idx];
+  document.getElementById("modalTitle").textContent = "編輯紀錄";
+  document.getElementById("editIndex").value = idx;
+  document.getElementById("formDate").value = r.date || "";
+  document.getElementById("formMileage").value = r.mileage || "";
+  document.getElementById("formCategory").value = r.category || "";
+  document.getElementById("formCost").value = r.cost || "";
+  document.getElementById("formTemplate").value = "";
+  document.getElementById("formDetail").value = r.detail || "";
+  document.getElementById("formNote").value = r.note || "";
+  clearFormMessage();
+  updateMileageHint(idx);
+  document.getElementById("modal").style.display = "flex";
+}
+
+function closeModal() {
+  document.getElementById("modal").style.display = "none";
+  clearFormMessage();
+}
+
+function showMileageMessage(type, text) {
+  const el = document.getElementById("mileageMessage");
+  el.className = "form-message form-message-" + type;
+  el.textContent = text;
+}
+
+function clearMileageMessage() {
+  const el = document.getElementById("mileageMessage");
+  el.className = "form-message";
+  el.textContent = "";
+}
+
+function showFuelMessage(type, text) {
+  const el = document.getElementById("fuelMessage");
+  el.className = "form-message form-message-" + type;
+  el.textContent = text;
+}
+
+function clearFuelMessage() {
+  const el = document.getElementById("fuelMessage");
+  el.className = "form-message";
+  el.textContent = "";
+}
+
+function openMileageModal() {
+  const currentMileage = getCurrentMileage();
+  document.getElementById("currentMileageInput").value = currentMileage || "";
+  document.getElementById("currentMileageHint").textContent = currentMileage > 0
+    ? "目前紀錄最高里程是 " + currentMileage.toLocaleString("zh-TW") + " km。"
+    : "";
+  clearMileageMessage();
+  document.getElementById("mileageModal").style.display = "flex";
+}
+
+function closeMileageModal() {
+  document.getElementById("mileageModal").style.display = "none";
+  clearMileageMessage();
+}
+
+function openFuelModal() {
+  const currentMileage = getCurrentMileage();
+  document.getElementById("fuelMileageInput").value = currentMileage || "";
+  document.getElementById("fuelCostInput").value = "";
+  document.getElementById("fuelNoteInput").value = "";
+  clearFuelMessage();
+  document.getElementById("fuelModal").style.display = "flex";
+}
+
+function closeFuelModal() {
+  document.getElementById("fuelModal").style.display = "none";
+  clearFuelMessage();
+}
+
+function handleMileageSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById("currentMileageInput");
+  const mileage = parseInt(input.value);
+  const currentMileage = getCurrentMileage();
+
+  if (!Number.isFinite(mileage) || mileage <= 0) {
+    showMileageMessage("error", "請輸入有效的目前里程。");
+    return;
+  }
+  if (currentMileage > 0 && mileage < currentMileage) {
+    showMileageMessage("error", "目前里程不能低於既有最高里程 " + currentMileage.toLocaleString("zh-TW") + " km。");
+    return;
+  }
+
+  const today = getTodayString();
+  const existingTodayIndex = records.findIndex(r =>
+    r.date === today &&
+    r.category === "其他" &&
+    r.detail === "目前里程更新"
+  );
+  const rec = {
+    date: today,
+    mileage,
+    category: "其他",
+    detail: "目前里程更新",
+    cost: 0,
+    note: "用於儀表板里程計算"
+  };
+
+  if (existingTodayIndex >= 0) {
+    records[existingTodayIndex] = rec;
+  } else {
+    records.push(rec);
+  }
+
+  saveRecords(records);
+  closeMileageModal();
+  refresh();
+}
+
+function handleFuelSubmit(e) {
+  e.preventDefault();
+  const mileage = parseInt(document.getElementById("fuelMileageInput").value);
+  const cost = parseInt(document.getElementById("fuelCostInput").value) || 0;
+  const note = document.getElementById("fuelNoteInput").value.trim();
+  const currentMileage = getCurrentMileage();
+
+  if (!Number.isFinite(mileage) || mileage <= 0) {
+    showFuelMessage("error", "請輸入有效的添加里程。");
+    return;
+  }
+  if (currentMileage > 0 && mileage > currentMileage) {
+    showFuelMessage("error", "添加里程不能高於目前里程 " + currentMileage.toLocaleString("zh-TW") + " km。");
+    return;
+  }
+  if (cost < 0) {
+    showFuelMessage("error", "費用不能是負數。");
+    return;
+  }
+
+  records.push({
+    date: getTodayString(),
+    mileage,
+    category: "其他",
+    detail: "汽油精",
+    cost,
+    note: note || "定期添加維護"
+  });
+
+  saveRecords(records);
+  closeFuelModal();
+  refresh();
+}
+
+function handleFormSubmit(e) {
+  e.preventDefault();
+  const form = document.getElementById("recordForm");
+  if (!form.checkValidity()) {
+    showFormMessage("error", "請先補齊必填欄位，並確認數字欄位格式正確。");
+    form.reportValidity();
+    return;
+  }
+
+  const idx = parseInt(document.getElementById("editIndex").value);
+  const mileageInput = document.getElementById("formMileage").value;
+  const costInput = document.getElementById("formCost").value;
+  const mileage = mileageInput ? parseInt(mileageInput) : null;
+  const cost = costInput ? parseInt(costInput) : 0;
+
+  if ((mileage !== null && mileage < 0) || cost < 0) {
+    showFormMessage("error", "里程與費用不能是負數。");
+    return;
+  }
+
+  const rec = {
+    date:     document.getElementById("formDate").value,
+    mileage,
+    category: document.getElementById("formCategory").value,
+    detail:   document.getElementById("formDetail").value.trim(),
+    cost,
+    note:     document.getElementById("formNote").value.trim()
+  };
+
+  if (!rec.detail) {
+    showFormMessage("error", "請填寫詳細內容，例如更換項目、料號或施工內容。");
+    return;
+  }
+
+  const maxMileage = getMaxMileage(idx);
+  const saveBtn = e.submitter || document.querySelector("#recordForm button[type='submit']");
+  if (rec.mileage !== null && maxMileage > 0 && rec.mileage < maxMileage && !saveBtn.dataset.confirmedMileage) {
+    showFormMessage("info", "這筆里程低於目前最高里程 " + maxMileage.toLocaleString("zh-TW") + " km；若是在補登舊紀錄，請再按一次儲存。");
+    saveBtn.dataset.confirmedMileage = "true";
+    return;
+  }
+
+  if (idx === -1) {
+    records.push(rec);
+  } else {
+    records[idx] = rec;
+  }
+
+  saveRecords(records);
+  closeModal();
+  refresh();
+}
+
+// ============================================================
+// 刪除 Modal
+// ============================================================
+function openDeleteModal(idx) {
+  deleteTargetIndex = idx;
+  document.getElementById("deleteModal").style.display = "flex";
+}
+function closeDeleteModal() {
+  document.getElementById("deleteModal").style.display = "none";
+  deleteTargetIndex = -1;
+}
+function handleDeleteConfirm() {
+  if (deleteTargetIndex < 0) return;
+  records.splice(deleteTargetIndex, 1);
+  saveRecords(records);
+  closeDeleteModal();
+  refresh();
+}
+
+// ============================================================
+// 匯出 CSV
+// ============================================================
+function exportCSV() {
+  const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
+  const BOM = "\uFEFF";
+  const header = ["日期", "里程(km)", "類別", "詳細內容", "費用(NT$)", "備註"];
+  const rows = sorted.map(r => [
+    r.date,
+    r.mileage ?? "",
+    r.category,
+    `"${(r.detail || "").replace(/"/g, '""')}"`,
+    asNumber(r.cost),
+    `"${(r.note || "").replace(/"/g, '""')}"`
+  ]);
+  const csv = BOM + [header.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = `車輛保養紀錄_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// 全量更新
+// ============================================================
+function refresh() {
+  updateStats();
+  renderConsumableTrackers();
+  populateYearFilter();
+  updateFilterPills();
+  buildCharts();
+  renderRecords();
+}
+
+// ============================================================
+// 事件綁定
+// ============================================================
+document.addEventListener("DOMContentLoaded", () => {
+  // 今日初始化 (改為從雲端載入)
+  initData();
+
+  // 新增按鈕
+  document.getElementById("btnAddRecord").addEventListener("click", openAddModal);
+  document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
+  document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
+
+  // 匯出
+  document.getElementById("btnExport").addEventListener("click", exportCSV);
+
+  // 同步狀態重試
+  document.getElementById("syncStatus").addEventListener("click", () => syncToCloud(records));
+
+  // Modal 關閉
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("btnCancel").addEventListener("click", closeModal);
+  document.getElementById("modal").addEventListener("click", e => {
+    if (e.target === document.getElementById("modal")) closeModal();
+  });
+
+  // 表單提交
+  document.getElementById("recordForm").addEventListener("submit", handleFormSubmit);
+  document.getElementById("formTemplate").addEventListener("change", e => applyRecordTemplate(e.target.value));
+  ["formDate", "formMileage", "formCategory", "formCost", "formDetail", "formNote"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => {
+      clearFormMessage();
+      if (id === "formMileage") updateMileageHint();
+    });
+  });
+
+  // 目前里程更新
+  document.getElementById("mileageModalClose").addEventListener("click", closeMileageModal);
+  document.getElementById("mileageCancelBtn").addEventListener("click", closeMileageModal);
+  document.getElementById("mileageModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("mileageModal")) closeMileageModal();
+  });
+  document.getElementById("mileageForm").addEventListener("submit", handleMileageSubmit);
+  document.getElementById("currentMileageInput").addEventListener("input", clearMileageMessage);
+
+  // 汽油精添加
+  document.getElementById("fuelModalClose").addEventListener("click", closeFuelModal);
+  document.getElementById("fuelCancelBtn").addEventListener("click", closeFuelModal);
+  document.getElementById("fuelModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("fuelModal")) closeFuelModal();
+  });
+  document.getElementById("fuelForm").addEventListener("submit", handleFuelSubmit);
+  ["fuelMileageInput", "fuelCostInput", "fuelNoteInput"].forEach(id => {
+    document.getElementById(id).addEventListener("input", clearFuelMessage);
+  });
+
+  // 刪除 Modal
+  document.getElementById("deleteCancelBtn").addEventListener("click", closeDeleteModal);
+  document.getElementById("deleteConfirmBtn").addEventListener("click", handleDeleteConfirm);
+  document.getElementById("deleteModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("deleteModal")) closeDeleteModal();
+  });
+
+  // 類別篩選 Pills
+  document.getElementById("filterPills").addEventListener("click", e => {
+    const btn = e.target.closest(".pill");
+    if (!btn) return;
+    document.querySelectorAll(".pill").forEach(p => p.classList.remove("pill-active"));
+    btn.classList.add("pill-active");
+    currentFilter = btn.dataset.cat;
+    renderRecords();
+  });
+
+  // 年份篩選
+  document.getElementById("yearFilter").addEventListener("change", e => {
+    currentYear = e.target.value;
+    renderRecords();
+  });
+
+  // 搜尋
+  let searchTimer;
+  document.getElementById("searchInput").addEventListener("input", e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      currentSearch = e.target.value.trim();
+      renderRecords();
+    }, 200);
+  });
+});
+  </script>
+</body>
+</html>
