@@ -320,6 +320,72 @@ body {
 .chart-wide { grid-column: 1; }
 
 /* ============================================================
+   Fuel Log Table
+   ============================================================ */
+.fuel-log-section {
+  max-width: 1200px;
+  margin: 24px auto 0;
+  padding: 0 24px;
+}
+.fuel-log-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+}
+.fuel-log-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.fuel-log-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.fuel-log-summary {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-align: right;
+}
+.fuel-log-table-wrap {
+  overflow-x: auto;
+}
+.fuel-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 820px;
+}
+.fuel-log-table th,
+.fuel-log-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+  text-align: right;
+  white-space: nowrap;
+}
+.fuel-log-table th {
+  color: var(--text-secondary);
+  font-weight: 700;
+  background: var(--bg-input);
+}
+.fuel-log-table th:first-child,
+.fuel-log-table td:first-child,
+.fuel-log-table th:nth-child(2),
+.fuel-log-table td:nth-child(2) {
+  text-align: left;
+}
+.fuel-log-table tbody tr:hover {
+  background: var(--bg-card-hover);
+}
+.fuel-log-empty {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 18px 0 2px;
+}
+
+/* ============================================================
    Filter Bar
    ============================================================ */
 .filter-section {
@@ -696,6 +762,7 @@ body {
   .header-inner { padding: 12px 16px; align-items: flex-start; }
   .header-actions { flex-wrap: wrap; justify-content: flex-end; }
   .stats-section, .trackers-section, .charts-section, .filter-section, .records-section { padding: 0 16px; }
+  .fuel-log-section { padding: 0 16px; }
   .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .trackers-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .stat-card { padding: 14px; }
@@ -796,6 +863,13 @@ body {
           <div class="stat-label">最近油耗 km/L</div>
         </div>
       </div>
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">🛡</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statWarrantyStart">—</div>
+          <div class="stat-label">保固起算</div>
+        </div>
+      </div>
       <div class="stat-card stat-purple">
         <div class="stat-icon">⏱</div>
         <div class="stat-content">
@@ -839,6 +913,36 @@ body {
         </div>
         <div style="position:relative;height:220px"><canvas id="categoryChart"></canvas></div>
       </div>
+    </div>
+  </section>
+
+  <!-- 加油紀錄區 -->
+  <section class="fuel-log-section">
+    <div class="fuel-log-panel">
+      <div class="fuel-log-header">
+        <h2 class="fuel-log-title">加油紀錄</h2>
+        <div class="fuel-log-summary" id="fuelLogSummary">尚無加油資料</div>
+      </div>
+      <div class="fuel-log-table-wrap">
+        <table class="fuel-log-table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>油品</th>
+              <th>里程</th>
+              <th>公升</th>
+              <th>牌告</th>
+              <th>折抵</th>
+              <th>實付/L</th>
+              <th>油費</th>
+              <th>油耗</th>
+              <th>備註</th>
+            </tr>
+          </thead>
+          <tbody id="fuelLogTableBody"></tbody>
+        </table>
+      </div>
+      <div class="fuel-log-empty" id="fuelLogEmpty">第一筆加滿會作為基準，第二次加滿後開始計算油耗。</div>
     </div>
   </section>
 
@@ -1097,6 +1201,7 @@ const INITIAL_DATA = [];
 // ============================================================
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
+const WARRANTY_START_DATE = "2026-05-28";
 
 let records = [];
 let currentFilter = "全部";
@@ -1245,6 +1350,9 @@ function formatMileage(n) {
   if (n == null || n === "") return "—";
   return Number(n).toLocaleString("zh-TW") + " km";
 }
+function formatNumberOrDash(value, digits = 1) {
+  return Number.isFinite(value) ? value.toFixed(digits) : "—";
+}
 function getYear(dateStr) {
   return dateStr ? dateStr.substring(0, 4) : "";
 }
@@ -1292,6 +1400,9 @@ function parseFuelLog(r) {
   if (!isFuelLogRecord(r)) return null;
   const detail = r.detail || "";
   const litersMatch = detail.match(/([0-9]+(?:\.[0-9]+)?)\s*L/i);
+  const unitPriceMatch = detail.match(/牌告\s*([0-9]+(?:\.[0-9]+)?)/);
+  const discountMatch = detail.match(/優惠\s*([0-9]+(?:\.[0-9]+)?)/);
+  const netPriceMatch = detail.match(/實付\s*([0-9]+(?:\.[0-9]+)?)/);
   const mileage = Number(r.mileage);
   const liters = litersMatch ? parseFloat(litersMatch[1]) : NaN;
   if (!Number.isFinite(mileage) || mileage <= 0 || !Number.isFinite(liters) || liters <= 0) return null;
@@ -1301,7 +1412,11 @@ function parseFuelLog(r) {
     liters,
     cost: asNumber(r.cost),
     fullTank: detail.includes("加滿"),
-    fuelType: (detail.split("｜")[1] || "").trim()
+    fuelType: (detail.split("｜")[1] || "").trim(),
+    unitPrice: unitPriceMatch ? parseFloat(unitPriceMatch[1]) : null,
+    discount: discountMatch ? parseFloat(discountMatch[1]) : null,
+    netPrice: netPriceMatch ? parseFloat(netPriceMatch[1]) : null,
+    note: r.note || ""
   };
 }
 function getFuelLogs() {
@@ -1329,6 +1444,7 @@ function getFuelStats() {
       if (distance > 0 && litersSinceAnchor > 0) {
         segments.push({
           date: log.date,
+          mileage: log.mileage,
           distance,
           liters: litersSinceAnchor,
           kmPerLiter: distance / litersSinceAnchor
@@ -1423,6 +1539,7 @@ function updateStats() {
   document.getElementById("statLastFuel").textContent = fuelStats.latestKmPerLiter
     ? fuelStats.latestKmPerLiter.toFixed(1)
     : "—";
+  document.getElementById("statWarrantyStart").textContent = WARRANTY_START_DATE;
 
   const nextMaintEl = document.getElementById("statNextMaintenance");
   const lastMaintMileage = lastMaint ? Number(lastMaint.mileage) : null;
@@ -2261,11 +2378,67 @@ function exportCSV() {
 }
 
 // ============================================================
+// 加油紀錄表
+// ============================================================
+function renderFuelLogSection() {
+  const tbody = document.getElementById("fuelLogTableBody");
+  const summary = document.getElementById("fuelLogSummary");
+  const empty = document.getElementById("fuelLogEmpty");
+  if (!tbody || !summary || !empty) return;
+
+  const fuelStats = getFuelStats();
+  const logs = [...fuelStats.logs].sort((a, b) =>
+    b.date.localeCompare(a.date) || b.mileage - a.mileage
+  );
+  const segmentMap = new Map(
+    fuelStats.segments.map(segment => [`${segment.date}|${segment.mileage}`, segment])
+  );
+
+  if (!logs.length) {
+    tbody.innerHTML = "";
+    summary.textContent = "尚無加油資料";
+    empty.style.display = "block";
+    return;
+  }
+
+  empty.style.display = "none";
+  summary.textContent = [
+    `共 ${logs.length} 筆`,
+    `累計 ${formatCost(fuelStats.totalCost)}`,
+    fuelStats.averageKmPerLiter
+      ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L`
+      : "油耗待第二次加滿後計算"
+  ].join(" · ");
+
+  tbody.innerHTML = logs.map(log => {
+    const segment = segmentMap.get(`${log.date}|${log.mileage}`);
+    const kmPerLiter = segment
+      ? `${segment.kmPerLiter.toFixed(1)} km/L`
+      : (log.fullTank ? "基準" : "—");
+    return `
+      <tr>
+        <td>${escapeHtml(log.date)}</td>
+        <td>${escapeHtml(log.fuelType || "—")}</td>
+        <td>${formatMileage(log.mileage)}</td>
+        <td>${log.liters.toFixed(2)} L</td>
+        <td>${formatNumberOrDash(log.unitPrice, 1)}</td>
+        <td>${formatNumberOrDash(log.discount, 1)}</td>
+        <td>${formatNumberOrDash(log.netPrice, 1)}</td>
+        <td>${formatCost(log.cost)}</td>
+        <td>${kmPerLiter}</td>
+        <td>${escapeHtml(log.note || "")}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+// ============================================================
 // 全量更新
 // ============================================================
 function refresh() {
   updateStats();
   renderConsumableTrackers();
+  renderFuelLogSection();
   populateYearFilter();
   updateFilterPills();
   buildCharts();
