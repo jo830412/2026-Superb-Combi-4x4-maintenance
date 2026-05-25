@@ -55,6 +55,7 @@ body {
   min-height: 100vh;
   line-height: 1.5;
   padding-bottom: 60px;
+  overflow-x: hidden;
 }
 
 /* ============================================================
@@ -81,6 +82,10 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+.header-logo > div {
+  min-width: 0;
 }
 .logo-icon {
   font-size: 2rem;
@@ -90,6 +95,8 @@ body {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 1.25;
+  word-break: keep-all;
 }
 .logo-sub {
   font-size: 0.78rem;
@@ -769,17 +776,88 @@ body {
   .record-actions { justify-content: flex-start; }
 }
 @media (max-width: 600px) {
-  .header-inner { padding: 12px 16px; align-items: flex-start; }
-  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+  body { padding-bottom: 36px; }
+  .header-inner {
+    padding: 14px 16px 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .header-logo {
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-icon {
+    font-size: 1.7rem;
+  }
+  .logo-title {
+    font-size: 1rem;
+    line-height: 1.28;
+  }
+  .logo-sub {
+    font-size: 0.74rem;
+  }
+  .header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    flex-shrink: 1;
+  }
+  .header-actions .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.82rem;
+  }
+  .sync-status {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+    order: -1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stats-section {
+    margin-top: 18px;
+  }
   .stats-section, .trackers-section, .charts-section, .filter-section, .records-section { padding: 0 16px; }
   .fuel-log-section { padding: 0 16px; }
   .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .trackers-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .stat-card { padding: 14px; }
+  .stat-card {
+    min-height: 76px;
+    padding: 12px;
+    gap: 10px;
+    border-radius: 12px;
+  }
+  .stat-icon {
+    width: 28px;
+    font-size: 1.35rem;
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 1.18rem;
+    letter-spacing: 0;
+    word-break: keep-all;
+    overflow-wrap: normal;
+  }
+  .stat-label {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .stat-topline {
+    align-items: center;
+  }
+  .stat-action {
+    padding: 3px 7px;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+  }
   .filter-bar { flex-direction: column; align-items: stretch; }
   .record-item { grid-template-columns: 1fr; }
-  .header-actions .btn { padding: 8px 12px; }
-  .sync-status { width: 100%; justify-content: center; order: 3; }
 }
   </style>
 </head>
