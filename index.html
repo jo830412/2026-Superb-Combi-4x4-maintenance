@@ -175,6 +175,15 @@ body {
   padding: 5px 12px;
   font-size: 0.8rem;
 }
+.input-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.input-action-row .btn {
+  min-height: 42px;
+}
 
 /* ============================================================
    Stats Cards
@@ -537,6 +546,7 @@ body {
 .badge-加油  { background: var(--orange-bg); color: var(--orange); }
 .badge-inspection { background: var(--yellow); color: #0d1117; }
 .badge-insurance { background: rgba(63, 185, 80, 0.14); color: var(--green); }
+.badge-cleaning { background: rgba(219, 39, 119, 0.14); color: #f778ba; }
 .badge-其他  { background: var(--bg-input);  color: var(--text-secondary); }
 .badge-status { background: var(--bg-input); color: var(--text-muted); }
 .record-status {
@@ -789,13 +799,16 @@ body {
           同步中
         </button>
         <button class="btn btn-primary" id="btnAddRecord">
-          <span>＋</span> 新增紀錄
+          <span>＋</span> 保養/維修
         </button>
         <button class="btn btn-ghost" id="btnAddFuelLog">
-          ⛽ 加油
+          <span>＋</span> 加油
+        </button>
+        <button class="btn btn-ghost" id="btnUpdateMileageHeader">
+          📍 更新里程
         </button>
         <button class="btn btn-ghost" id="btnExport">
-          ↓ 匯出 CSV
+          ↓ CSV
         </button>
       </div>
     </div>
@@ -804,20 +817,6 @@ body {
   <!-- 統計卡片區 -->
   <section class="stats-section">
     <div class="stats-grid">
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">📊</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statTotalRecords">—</div>
-          <div class="stat-label">總紀錄筆數</div>
-        </div>
-      </div>
-      <div class="stat-card stat-green">
-        <div class="stat-icon">💰</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statTotalCost">—</div>
-          <div class="stat-label">總花費 (NT$)</div>
-        </div>
-      </div>
       <div class="stat-card stat-purple">
         <div class="stat-icon">📍</div>
         <div class="stat-content">
@@ -829,24 +828,10 @@ body {
         </div>
       </div>
       <div class="stat-card stat-orange">
-        <div class="stat-icon">🔧</div>
+        <div class="stat-icon">⏱</div>
         <div class="stat-content">
-          <div class="stat-value" id="statLastMaintenance">—</div>
-          <div class="stat-label">上次保養</div>
-        </div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">🧾</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statRecentCost">—</div>
-          <div class="stat-label">近 12 月花費</div>
-        </div>
-      </div>
-      <div class="stat-card stat-green">
-        <div class="stat-icon">/km</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statCostPerKm">—</div>
-          <div class="stat-label">每公里維護成本</div>
+          <div class="stat-value" id="statNextMaintenance">—</div>
+          <div class="stat-label">下次保養建議</div>
         </div>
       </div>
       <div class="stat-card stat-blue">
@@ -870,14 +855,35 @@ body {
           <div class="stat-label">保固起算</div>
         </div>
       </div>
-      <div class="stat-card stat-purple">
-        <div class="stat-icon">⏱</div>
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">🔧</div>
         <div class="stat-content">
-          <div class="stat-value" id="statNextMaintenance">—</div>
-          <div class="stat-label">下次保養建議</div>
+          <div class="stat-value" id="statLastMaintenance">—</div>
+          <div class="stat-label">上次保養</div>
         </div>
       </div>
-      <div class="stat-card stat-orange">
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">🧾</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statRecentCost">—</div>
+          <div class="stat-label">近 12 月花費</div>
+        </div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon">💰</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statTotalCost">—</div>
+          <div class="stat-label">總花費 (NT$)</div>
+        </div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon">/km</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statCostPerKm">—</div>
+          <div class="stat-label">每公里維護成本</div>
+        </div>
+      </div>
+      <div class="stat-card stat-blue">
         <div class="stat-icon">🧪</div>
         <div class="stat-content">
           <div class="stat-topline">
@@ -885,6 +891,13 @@ body {
             <button class="btn btn-ghost btn-sm stat-action" id="btnAddFuelAdditive" type="button">已添加</button>
           </div>
           <div class="stat-label" id="statFuelAdditiveLabel">汽油精追蹤</div>
+        </div>
+      </div>
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">📊</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statTotalRecords">—</div>
+          <div class="stat-label">總紀錄筆數</div>
         </div>
       </div>
     </div>
@@ -958,10 +971,11 @@ body {
         <button class="pill" data-cat="保養">保養</button>
         <button class="pill" data-cat="維修">維修</button>
         <button class="pill" data-cat="更換">更換</button>
-        <button class="pill" data-cat="改裝升級">改裝升級</button>
         <button class="pill" data-cat="加油">加油</button>
-        <button class="pill" data-cat="檢驗/稅費">檢驗/稅費</button>
         <button class="pill" data-cat="保險">保險</button>
+        <button class="pill" data-cat="檢驗/稅費">檢驗/稅費</button>
+        <button class="pill" data-cat="清潔美容">清潔美容</button>
+        <button class="pill" data-cat="改裝升級">改裝升級</button>
         <button class="pill" data-cat="其他">其他</button>
       </div>
       <select id="yearFilter" class="year-select">
@@ -984,7 +998,7 @@ body {
   <div id="modal" class="modal-overlay" style="display:none;">
     <div class="modal">
       <div class="modal-header">
-        <h2 id="modalTitle">新增保養紀錄</h2>
+        <h2 id="modalTitle">新增保養/維修紀錄</h2>
         <button class="modal-close" id="modalClose">✕</button>
       </div>
       <div class="modal-body">
@@ -1007,10 +1021,10 @@ body {
                 <option value="保養">保養</option>
                 <option value="維修">維修</option>
                 <option value="更換">更換</option>
-                <option value="改裝升級">改裝升級</option>
-                <option value="加油">加油</option>
-                <option value="檢驗/稅費">檢驗/稅費</option>
                 <option value="保險">保險</option>
+                <option value="檢驗/稅費">檢驗/稅費</option>
+                <option value="清潔美容">清潔美容</option>
+                <option value="改裝升級">改裝升級</option>
                 <option value="其他">其他</option>
               </select>
             </div>
@@ -1098,7 +1112,11 @@ body {
             </div>
             <div class="form-group">
               <label class="form-label">牌告油價 (NT$/L)</label>
-              <input type="number" id="fuelLogUnitPriceInput" class="form-input" min="0" step="0.1" placeholder="例：31.2"/>
+              <div class="input-action-row">
+                <input type="number" id="fuelLogUnitPriceInput" class="form-input" min="0" step="0.1" placeholder="自動抓取或手動輸入"/>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnFetchFuelPrice">抓油價</button>
+              </div>
+              <div class="form-help" id="fuelLogPriceStatus">預設 98，會嘗試抓取全國加油站今日牌價。</div>
             </div>
             <div class="form-group">
               <label class="form-label">優惠折抵 (NT$/L)</label>
@@ -1112,8 +1130,8 @@ body {
             <div class="form-group">
               <label class="form-label">油品</label>
               <select id="fuelLogTypeInput" class="form-input">
-                <option value="95">95</option>
                 <option value="98">98</option>
+                <option value="95">95</option>
                 <option value="92">92</option>
                 <option value="其他">其他</option>
               </select>
@@ -1202,6 +1220,10 @@ const INITIAL_DATA = [];
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
+const DEFAULT_FUEL_TYPE = "98";
+const DEFAULT_FUEL_DISCOUNT = 1.8;
+const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
+const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v1";
 
 let records = [];
 let currentFilter = "全部";
@@ -1477,14 +1499,15 @@ function getTodayString() {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 function getCategoryEmoji(cat) {
-  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 改裝升級:"⚡", 加油:"⛽", "檢驗/稅費":"📅", 保險:"🛡", 其他:"📌" };
+  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 加油:"⛽", 保險:"🛡", "檢驗/稅費":"📅", 清潔美容:"✨", 改裝升級:"⚡", 其他:"📌" };
   return map[cat] || "📌";
 }
 
 function getCategoryBadgeClass(cat) {
   const map = {
     "檢驗/稅費": "badge-inspection",
-    "保險": "badge-insurance"
+    "保險": "badge-insurance",
+    "清潔美容": "badge-cleaning"
   };
   return map[cat] || "badge-" + escapeHtml(cat);
 }
@@ -1793,7 +1816,8 @@ function buildCostChart() {
 function buildCategoryChart() {
   const catColors = {
     保養: "#3fb950", 維修: "#f85149", 更換: "#58a6ff",
-    改裝升級: "#bc8cff", 加油: "#f0883e", "檢驗/稅費": "#d29922", 保險: "#059669", 其他: "#484f58"
+    加油: "#f0883e", 保險: "#059669", "檢驗/稅費": "#d29922",
+    清潔美容: "#db2777", 改裝升級: "#bc8cff", 其他: "#484f58"
   };
   const catMap = {};
   getServiceRecords().forEach(r => {
@@ -1997,7 +2021,7 @@ function applyRecordTemplate(key) {
 }
 
 function openAddModal() {
-  document.getElementById("modalTitle").textContent = "新增保養紀錄";
+  document.getElementById("modalTitle").textContent = "新增保養/維修紀錄";
   document.getElementById("editIndex").value = "-1";
   document.getElementById("recordForm").reset();
   document.getElementById("formDate").value = getTodayString();
@@ -2065,6 +2089,145 @@ function clearFuelLogMessage() {
   if (saveBtn) delete saveBtn.dataset.confirmedMileage;
 }
 
+function setFuelPriceStatus(text) {
+  const el = document.getElementById("fuelLogPriceStatus");
+  if (el) el.textContent = text || "";
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+function normalizeFuelPricePage(html) {
+  return decodeHtmlEntities(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseFuelPricePage(html) {
+  const text = normalizeFuelPricePage(html);
+  const readPrice = pattern => {
+    const match = text.match(pattern);
+    return match ? parseFloat(match[1]) : null;
+  };
+  const effectiveMatch = text.match(/零售參考價\s*([^，。]+?)\s*實行/);
+  return {
+    source: "全國加油站",
+    effectiveAt: effectiveMatch ? effectiveMatch[1].trim() : "",
+    prices: {
+      "92": readPrice(/92無鉛汽油\s*([0-9]+(?:\.[0-9]+)?)\s*元/),
+      "95": readPrice(/95\+?無鉛汽油\s*([0-9]+(?:\.[0-9]+)?)\s*元/),
+      "98": readPrice(/98無鉛汽油\s*([0-9]+(?:\.[0-9]+)?)\s*元/)
+    }
+  };
+}
+
+function getFuelPriceCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(FUEL_PRICE_CACHE_KEY) || "null");
+    return cached && cached.prices ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveFuelPriceCache(data) {
+  localStorage.setItem(FUEL_PRICE_CACHE_KEY, JSON.stringify({
+    ...data,
+    cachedAt: new Date().toISOString()
+  }));
+}
+
+async function fetchTextWithTimeout(url, timeoutMs = 6500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchCurrentFuelPrices() {
+  const urls = [
+    FUEL_PRICE_SOURCE_URL,
+    "https://api.allorigins.win/raw?url=" + encodeURIComponent(FUEL_PRICE_SOURCE_URL)
+  ];
+  let lastError = null;
+
+  for (const url of urls) {
+    try {
+      const html = await fetchTextWithTimeout(url);
+      const data = parseFuelPricePage(html);
+      if (data.prices["98"] || data.prices["95"] || data.prices["92"]) {
+        saveFuelPriceCache(data);
+        return data;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Fuel price unavailable");
+}
+
+function getLatestRecordedFuelPrice(fuelType) {
+  return getFuelLogs()
+    .filter(log => log.fuelType === fuelType && Number.isFinite(log.unitPrice))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.mileage - a.mileage)[0]?.unitPrice || null;
+}
+
+async function loadFuelPriceForSelectedType({ force = false } = {}) {
+  const typeInput = document.getElementById("fuelLogTypeInput");
+  const priceInput = document.getElementById("fuelLogUnitPriceInput");
+  if (!typeInput || !priceInput) return;
+
+  const fuelType = typeInput.value;
+  if (fuelType === "其他") {
+    setFuelPriceStatus("其他油品請手動輸入牌告油價。");
+    return;
+  }
+  if (priceInput.value && !force) return;
+
+  setFuelPriceStatus(`正在抓取全國加油站 ${fuelType} 今日牌價...`);
+  try {
+    const data = await fetchCurrentFuelPrices();
+    const price = data.prices[fuelType];
+    if (Number.isFinite(price)) {
+      priceInput.value = price.toFixed(1);
+      setFuelPriceStatus(`已抓取 ${data.source} ${fuelType} 牌價 ${price.toFixed(1)} 元/L${data.effectiveAt ? "，" + data.effectiveAt + " 實行" : ""}。`);
+      updateFuelLogCostFromDiscount();
+      return;
+    }
+  } catch {
+    const cached = getFuelPriceCache();
+    const cachedPrice = cached?.prices?.[fuelType];
+    if (Number.isFinite(cachedPrice)) {
+      priceInput.value = cachedPrice.toFixed(1);
+      setFuelPriceStatus(`無法更新即時油價，先使用上次抓到的 ${fuelType} 牌價 ${cachedPrice.toFixed(1)} 元/L。`);
+      updateFuelLogCostFromDiscount();
+      return;
+    }
+  }
+
+  const latestRecorded = getLatestRecordedFuelPrice(fuelType);
+  if (Number.isFinite(latestRecorded)) {
+    priceInput.value = latestRecorded.toFixed(1);
+    setFuelPriceStatus(`無法抓取今日油價，先帶入最近紀錄的 ${fuelType} 牌價 ${latestRecorded.toFixed(1)} 元/L。`);
+    updateFuelLogCostFromDiscount();
+    return;
+  }
+  setFuelPriceStatus("暫時抓不到今日油價，請手動輸入牌告油價。");
+}
+
 function getFuelLogCalculatedCost() {
   const liters = parseFloat(document.getElementById("fuelLogLitersInput").value);
   const unitPrice = parseFloat(document.getElementById("fuelLogUnitPriceInput").value);
@@ -2113,14 +2276,16 @@ function openFuelLogModal() {
   document.getElementById("fuelLogMileageInput").value = currentMileage || "";
   document.getElementById("fuelLogLitersInput").value = "";
   document.getElementById("fuelLogUnitPriceInput").value = "";
-  document.getElementById("fuelLogDiscountInput").value = "1.8";
+  document.getElementById("fuelLogDiscountInput").value = String(DEFAULT_FUEL_DISCOUNT);
   document.getElementById("fuelLogCostInput").value = "";
   document.getElementById("fuelLogNetPriceHint").textContent = "";
-  document.getElementById("fuelLogTypeInput").value = "95";
+  document.getElementById("fuelLogTypeInput").value = DEFAULT_FUEL_TYPE;
   document.getElementById("fuelLogFullTankInput").value = "yes";
   document.getElementById("fuelLogNoteInput").value = "全國加油站自助";
+  setFuelPriceStatus("預設 98，會嘗試抓取全國加油站今日牌價。");
   clearFuelLogMessage();
   document.getElementById("fuelLogModal").style.display = "flex";
+  loadFuelPriceForSelectedType({ force: true });
 }
 
 function closeFuelLogModal() {
@@ -2456,6 +2621,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnAddRecord").addEventListener("click", openAddModal);
   document.getElementById("btnAddFuelLog").addEventListener("click", openFuelLogModal);
   document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
+  document.getElementById("btnUpdateMileageHeader").addEventListener("click", openMileageModal);
   document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
 
   // 匯出
@@ -2497,11 +2663,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target === document.getElementById("fuelLogModal")) closeFuelLogModal();
   });
   document.getElementById("fuelLogForm").addEventListener("submit", handleFuelLogSubmit);
+  document.getElementById("btnFetchFuelPrice").addEventListener("click", () => loadFuelPriceForSelectedType({ force: true }));
   ["fuelLogLitersInput", "fuelLogUnitPriceInput", "fuelLogDiscountInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
       clearFuelLogMessage();
       updateFuelLogCostFromDiscount();
     });
+  });
+  document.getElementById("fuelLogTypeInput").addEventListener("change", () => {
+    clearFuelLogMessage();
+    loadFuelPriceForSelectedType({ force: true });
   });
   ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogCostInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", clearFuelLogMessage);
