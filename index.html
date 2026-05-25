@@ -468,6 +468,7 @@ body {
 .badge-維修  { background: var(--red-bg);    color: var(--red);    }
 .badge-更換  { background: var(--blue-bg);   color: var(--blue);   }
 .badge-改裝升級 { background: var(--purple-bg); color: var(--purple); }
+.badge-加油  { background: var(--orange-bg); color: var(--orange); }
 .badge-其他  { background: var(--bg-input);  color: var(--text-secondary); }
 .badge-status { background: var(--bg-input); color: var(--text-muted); }
 .record-status {
@@ -721,6 +722,9 @@ body {
         <button class="btn btn-primary" id="btnAddRecord">
           <span>＋</span> 新增紀錄
         </button>
+        <button class="btn btn-ghost" id="btnAddFuelLog">
+          ⛽ 加油
+        </button>
         <button class="btn btn-ghost" id="btnExport">
           ↓ 匯出 CSV
         </button>
@@ -774,6 +778,20 @@ body {
         <div class="stat-content">
           <div class="stat-value" id="statCostPerKm">—</div>
           <div class="stat-label">每公里維護成本</div>
+        </div>
+      </div>
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">⛽</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statAvgFuel">—</div>
+          <div class="stat-label">平均油耗 km/L</div>
+        </div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon">⛽</div>
+        <div class="stat-content">
+          <div class="stat-value" id="statLastFuel">—</div>
+          <div class="stat-label">最近油耗 km/L</div>
         </div>
       </div>
       <div class="stat-card stat-purple">
@@ -835,6 +853,7 @@ body {
         <button class="pill" data-cat="維修">維修</button>
         <button class="pill" data-cat="更換">更換</button>
         <button class="pill" data-cat="改裝升級">改裝升級</button>
+        <button class="pill" data-cat="加油">加油</button>
         <button class="pill" data-cat="其他">其他</button>
       </div>
       <select id="yearFilter" class="year-select">
@@ -881,6 +900,7 @@ body {
                 <option value="維修">維修</option>
                 <option value="更換">更換</option>
                 <option value="改裝升級">改裝升級</option>
+                <option value="加油">加油</option>
                 <option value="其他">其他</option>
               </select>
             </div>
@@ -938,6 +958,63 @@ body {
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" id="mileageCancelBtn">取消</button>
             <button type="submit" class="btn btn-primary">💾 更新里程</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 加油紀錄 Modal -->
+  <div id="fuelLogModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>新增加油紀錄</h2>
+        <button class="modal-close" id="fuelLogModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="fuelLogForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">日期 <span class="required">*</span></label>
+              <input type="date" id="fuelLogDateInput" class="form-input" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">里程 (km) <span class="required">*</span></label>
+              <input type="number" id="fuelLogMileageInput" class="form-input" min="0" step="1" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">加油量 (L) <span class="required">*</span></label>
+              <input type="number" id="fuelLogLitersInput" class="form-input" min="0" step="0.01" placeholder="例：45.5" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">油費 (NT$)</label>
+              <input type="number" id="fuelLogCostInput" class="form-input" min="0" step="1" placeholder="0"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">油品</label>
+              <select id="fuelLogTypeInput" class="form-input">
+                <option value="95">95</option>
+                <option value="98">98</option>
+                <option value="92">92</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">加滿</label>
+              <select id="fuelLogFullTankInput" class="form-input">
+                <option value="yes">加滿</option>
+                <option value="no">未加滿</option>
+              </select>
+            </div>
+            <div class="form-group form-group-full">
+              <label class="form-label">加油站 / 備註</label>
+              <input type="text" id="fuelLogNoteInput" class="form-input" placeholder="例：中油、胎壓 36 psi、跳停一次"/>
+            </div>
+            <div class="form-message" id="fuelLogMessage"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="fuelLogCancelBtn">取消</button>
+            <button type="submit" class="btn btn-primary">💾 儲存加油</button>
           </div>
         </form>
       </div>
@@ -1189,8 +1266,72 @@ function getCurrentMileage() {
 function isMileageUpdateRecord(r) {
   return r && r.category === "其他" && r.detail === "目前里程更新";
 }
+function isFuelLogRecord(r) {
+  return r && r.category === "加油";
+}
 function getServiceRecords() {
   return records.filter(r => !isMileageUpdateRecord(r));
+}
+function parseFuelLog(r) {
+  if (!isFuelLogRecord(r)) return null;
+  const detail = r.detail || "";
+  const litersMatch = detail.match(/([0-9]+(?:\.[0-9]+)?)\s*L/i);
+  const mileage = Number(r.mileage);
+  const liters = litersMatch ? parseFloat(litersMatch[1]) : NaN;
+  if (!Number.isFinite(mileage) || mileage <= 0 || !Number.isFinite(liters) || liters <= 0) return null;
+  return {
+    date: r.date || "",
+    mileage,
+    liters,
+    cost: asNumber(r.cost),
+    fullTank: detail.includes("加滿"),
+    fuelType: (detail.split("｜")[1] || "").trim()
+  };
+}
+function getFuelLogs() {
+  return records
+    .map(parseFuelLog)
+    .filter(Boolean)
+    .sort((a, b) => a.mileage - b.mileage || a.date.localeCompare(b.date));
+}
+function getFuelStats() {
+  const logs = getFuelLogs();
+  const totalCost = logs.reduce((sum, log) => sum + log.cost, 0);
+  let anchor = null;
+  let litersSinceAnchor = 0;
+  const segments = [];
+
+  logs.forEach(log => {
+    if (!anchor) {
+      if (log.fullTank) anchor = log;
+      return;
+    }
+
+    litersSinceAnchor += log.liters;
+    if (log.fullTank) {
+      const distance = log.mileage - anchor.mileage;
+      if (distance > 0 && litersSinceAnchor > 0) {
+        segments.push({
+          date: log.date,
+          distance,
+          liters: litersSinceAnchor,
+          kmPerLiter: distance / litersSinceAnchor
+        });
+      }
+      anchor = log;
+      litersSinceAnchor = 0;
+    }
+  });
+
+  const totalDistance = segments.reduce((sum, segment) => sum + segment.distance, 0);
+  const totalLiters = segments.reduce((sum, segment) => sum + segment.liters, 0);
+  return {
+    logs,
+    segments,
+    totalCost,
+    averageKmPerLiter: totalDistance > 0 && totalLiters > 0 ? totalDistance / totalLiters : null,
+    latestKmPerLiter: segments.length ? segments[segments.length - 1].kmPerLiter : null
+  };
 }
 function recordMatchesTerms(r, terms) {
   if (isMileageUpdateRecord(r)) return false;
@@ -1204,7 +1345,7 @@ function getTodayString() {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 function getCategoryEmoji(cat) {
-  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 改裝升級:"⚡", 其他:"📌" };
+  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 改裝升級:"⚡", 加油:"⛽", 其他:"📌" };
   return map[cat] || "📌";
 }
 
@@ -1243,12 +1384,20 @@ function updateStats() {
     : "0";
 
   const maintenanceCost = serviceRecords
-    .filter(r => r.category !== "改裝升級" && r.category !== "其他")
+    .filter(r => r.category !== "改裝升級" && r.category !== "加油" && r.category !== "其他")
     .reduce((sum, r) => sum + asNumber(r.cost), 0);
   const mileageValues = records.map(r => Number(r.mileage)).filter(v => Number.isFinite(v) && v > 0);
   const mileageSpan = mileageValues.length > 1 ? Math.max(...mileageValues) - Math.min(...mileageValues) : 0;
   document.getElementById("statCostPerKm").textContent = mileageSpan > 0
     ? "NT$ " + (maintenanceCost / mileageSpan).toFixed(1)
+    : "—";
+
+  const fuelStats = getFuelStats();
+  document.getElementById("statAvgFuel").textContent = fuelStats.averageKmPerLiter
+    ? fuelStats.averageKmPerLiter.toFixed(1)
+    : "—";
+  document.getElementById("statLastFuel").textContent = fuelStats.latestKmPerLiter
+    ? fuelStats.latestKmPerLiter.toFixed(1)
     : "—";
 
   const nextMaintEl = document.getElementById("statNextMaintenance");
@@ -1503,7 +1652,7 @@ function buildCostChart() {
 function buildCategoryChart() {
   const catColors = {
     保養: "#3fb950", 維修: "#f85149", 更換: "#58a6ff",
-    改裝升級: "#bc8cff", 其他: "#484f58"
+    改裝升級: "#bc8cff", 加油: "#f0883e", 其他: "#484f58"
   };
   const catMap = {};
   getServiceRecords().forEach(r => {
@@ -1761,6 +1910,20 @@ function clearFuelMessage() {
   el.textContent = "";
 }
 
+function showFuelLogMessage(type, text) {
+  const el = document.getElementById("fuelLogMessage");
+  el.className = "form-message form-message-" + type;
+  el.textContent = text;
+}
+
+function clearFuelLogMessage() {
+  const el = document.getElementById("fuelLogMessage");
+  el.className = "form-message";
+  el.textContent = "";
+  const saveBtn = document.querySelector("#fuelLogForm button[type='submit']");
+  if (saveBtn) delete saveBtn.dataset.confirmedMileage;
+}
+
 function openMileageModal() {
   const currentMileage = getCurrentMileage();
   document.getElementById("currentMileageInput").value = currentMileage || "";
@@ -1774,6 +1937,24 @@ function openMileageModal() {
 function closeMileageModal() {
   document.getElementById("mileageModal").style.display = "none";
   clearMileageMessage();
+}
+
+function openFuelLogModal() {
+  const currentMileage = getCurrentMileage();
+  document.getElementById("fuelLogDateInput").value = getTodayString();
+  document.getElementById("fuelLogMileageInput").value = currentMileage || "";
+  document.getElementById("fuelLogLitersInput").value = "";
+  document.getElementById("fuelLogCostInput").value = "";
+  document.getElementById("fuelLogTypeInput").value = "95";
+  document.getElementById("fuelLogFullTankInput").value = "yes";
+  document.getElementById("fuelLogNoteInput").value = "";
+  clearFuelLogMessage();
+  document.getElementById("fuelLogModal").style.display = "flex";
+}
+
+function closeFuelLogModal() {
+  document.getElementById("fuelLogModal").style.display = "none";
+  clearFuelLogMessage();
 }
 
 function openFuelModal() {
@@ -1828,6 +2009,54 @@ function handleMileageSubmit(e) {
 
   saveRecords(records);
   closeMileageModal();
+  refresh();
+}
+
+function handleFuelLogSubmit(e) {
+  e.preventDefault();
+  const date = document.getElementById("fuelLogDateInput").value;
+  const mileage = parseInt(document.getElementById("fuelLogMileageInput").value);
+  const liters = parseFloat(document.getElementById("fuelLogLitersInput").value);
+  const cost = parseInt(document.getElementById("fuelLogCostInput").value) || 0;
+  const fuelType = document.getElementById("fuelLogTypeInput").value;
+  const fullTank = document.getElementById("fuelLogFullTankInput").value === "yes";
+  const note = document.getElementById("fuelLogNoteInput").value.trim();
+  const maxMileage = getCurrentMileage();
+  const saveBtn = e.submitter || document.querySelector("#fuelLogForm button[type='submit']");
+
+  if (!date) {
+    showFuelLogMessage("error", "請選擇加油日期。");
+    return;
+  }
+  if (!Number.isFinite(mileage) || mileage <= 0) {
+    showFuelLogMessage("error", "請輸入有效的加油里程。");
+    return;
+  }
+  if (!Number.isFinite(liters) || liters <= 0) {
+    showFuelLogMessage("error", "請輸入有效的加油公升數。");
+    return;
+  }
+  if (cost < 0) {
+    showFuelLogMessage("error", "油費不能是負數。");
+    return;
+  }
+  if (maxMileage > 0 && mileage < maxMileage && !saveBtn.dataset.confirmedMileage) {
+    showFuelLogMessage("info", "這筆里程低於目前最高里程；若是在補登舊加油紀錄，請再按一次儲存。");
+    saveBtn.dataset.confirmedMileage = "true";
+    return;
+  }
+
+  records.push({
+    date,
+    mileage,
+    category: "加油",
+    detail: `加油｜${fuelType}｜${liters.toFixed(2)} L｜${fullTank ? "加滿" : "未加滿"}`,
+    cost,
+    note
+  });
+
+  saveRecords(records);
+  closeFuelLogModal();
   refresh();
 }
 
@@ -1983,6 +2212,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 新增按鈕
   document.getElementById("btnAddRecord").addEventListener("click", openAddModal);
+  document.getElementById("btnAddFuelLog").addEventListener("click", openFuelLogModal);
   document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
   document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
 
@@ -2017,6 +2247,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("mileageForm").addEventListener("submit", handleMileageSubmit);
   document.getElementById("currentMileageInput").addEventListener("input", clearMileageMessage);
+
+  // 加油紀錄
+  document.getElementById("fuelLogModalClose").addEventListener("click", closeFuelLogModal);
+  document.getElementById("fuelLogCancelBtn").addEventListener("click", closeFuelLogModal);
+  document.getElementById("fuelLogModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("fuelLogModal")) closeFuelLogModal();
+  });
+  document.getElementById("fuelLogForm").addEventListener("submit", handleFuelLogSubmit);
+  ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogLitersInput", "fuelLogCostInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
+    document.getElementById(id).addEventListener("input", clearFuelLogMessage);
+  });
 
   // 汽油精添加
   document.getElementById("fuelModalClose").addEventListener("click", closeFuelModal);
