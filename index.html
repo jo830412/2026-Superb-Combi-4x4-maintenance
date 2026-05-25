@@ -987,8 +987,17 @@ body {
               <input type="number" id="fuelLogLitersInput" class="form-input" min="0" step="0.01" placeholder="例：45.5" required/>
             </div>
             <div class="form-group">
+              <label class="form-label">牌告油價 (NT$/L)</label>
+              <input type="number" id="fuelLogUnitPriceInput" class="form-input" min="0" step="0.1" placeholder="例：31.2"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">優惠折抵 (NT$/L)</label>
+              <input type="number" id="fuelLogDiscountInput" class="form-input" min="0" step="0.1" value="1.8"/>
+            </div>
+            <div class="form-group">
               <label class="form-label">油費 (NT$)</label>
               <input type="number" id="fuelLogCostInput" class="form-input" min="0" step="1" placeholder="0"/>
+              <div class="form-help" id="fuelLogNetPriceHint"></div>
             </div>
             <div class="form-group">
               <label class="form-label">油品</label>
@@ -1924,6 +1933,33 @@ function clearFuelLogMessage() {
   if (saveBtn) delete saveBtn.dataset.confirmedMileage;
 }
 
+function getFuelLogCalculatedCost() {
+  const liters = parseFloat(document.getElementById("fuelLogLitersInput").value);
+  const unitPrice = parseFloat(document.getElementById("fuelLogUnitPriceInput").value);
+  const discount = parseFloat(document.getElementById("fuelLogDiscountInput").value) || 0;
+  if (!Number.isFinite(liters) || liters <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+  return {
+    unitPrice,
+    discount,
+    netPrice: Math.max(unitPrice - discount, 0),
+    total: Math.round(liters * Math.max(unitPrice - discount, 0))
+  };
+}
+
+function updateFuelLogCostFromDiscount() {
+  const calc = getFuelLogCalculatedCost();
+  const costInput = document.getElementById("fuelLogCostInput");
+  const hint = document.getElementById("fuelLogNetPriceHint");
+  if (!calc) {
+    hint.textContent = "";
+    return;
+  }
+  costInput.value = calc.total;
+  hint.textContent =
+    "實付單價 " + calc.netPrice.toFixed(1) +
+    " 元/L，預估油費 NT$ " + calc.total.toLocaleString("zh-TW");
+}
+
 function openMileageModal() {
   const currentMileage = getCurrentMileage();
   document.getElementById("currentMileageInput").value = currentMileage || "";
@@ -1944,10 +1980,13 @@ function openFuelLogModal() {
   document.getElementById("fuelLogDateInput").value = getTodayString();
   document.getElementById("fuelLogMileageInput").value = currentMileage || "";
   document.getElementById("fuelLogLitersInput").value = "";
+  document.getElementById("fuelLogUnitPriceInput").value = "";
+  document.getElementById("fuelLogDiscountInput").value = "1.8";
   document.getElementById("fuelLogCostInput").value = "";
+  document.getElementById("fuelLogNetPriceHint").textContent = "";
   document.getElementById("fuelLogTypeInput").value = "95";
   document.getElementById("fuelLogFullTankInput").value = "yes";
-  document.getElementById("fuelLogNoteInput").value = "";
+  document.getElementById("fuelLogNoteInput").value = "全國加油站自助";
   clearFuelLogMessage();
   document.getElementById("fuelLogModal").style.display = "flex";
 }
@@ -2017,7 +2056,9 @@ function handleFuelLogSubmit(e) {
   const date = document.getElementById("fuelLogDateInput").value;
   const mileage = parseInt(document.getElementById("fuelLogMileageInput").value);
   const liters = parseFloat(document.getElementById("fuelLogLitersInput").value);
-  const cost = parseInt(document.getElementById("fuelLogCostInput").value) || 0;
+  const calculatedFuelCost = getFuelLogCalculatedCost();
+  const costInputValue = document.getElementById("fuelLogCostInput").value;
+  const cost = costInputValue ? parseInt(costInputValue) : (calculatedFuelCost ? calculatedFuelCost.total : 0);
   const fuelType = document.getElementById("fuelLogTypeInput").value;
   const fullTank = document.getElementById("fuelLogFullTankInput").value === "yes";
   const note = document.getElementById("fuelLogNoteInput").value.trim();
@@ -2050,7 +2091,20 @@ function handleFuelLogSubmit(e) {
     date,
     mileage,
     category: "加油",
-    detail: `加油｜${fuelType}｜${liters.toFixed(2)} L｜${fullTank ? "加滿" : "未加滿"}`,
+    detail: [
+      `加油｜${fuelType}`,
+      `${liters.toFixed(2)} L`,
+      fullTank ? "加滿" : "未加滿",
+      calculatedFuelCost
+        ? `牌告 ${calculatedFuelCost.unitPrice.toFixed(1)} 元/L`
+        : "",
+      calculatedFuelCost
+        ? `優惠 ${calculatedFuelCost.discount.toFixed(1)} 元/L`
+        : "",
+      calculatedFuelCost
+        ? `實付 ${calculatedFuelCost.netPrice.toFixed(1)} 元/L`
+        : ""
+    ].filter(Boolean).join("｜"),
     cost,
     note
   });
@@ -2255,8 +2309,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target === document.getElementById("fuelLogModal")) closeFuelLogModal();
   });
   document.getElementById("fuelLogForm").addEventListener("submit", handleFuelLogSubmit);
-  ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogLitersInput", "fuelLogCostInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
+  ["fuelLogLitersInput", "fuelLogUnitPriceInput", "fuelLogDiscountInput"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => {
+      clearFuelLogMessage();
+      updateFuelLogCostFromDiscount();
+    });
+  });
+  ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogCostInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", clearFuelLogMessage);
+    document.getElementById(id).addEventListener("change", clearFuelLogMessage);
   });
 
   // 汽油精添加
