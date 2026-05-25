@@ -858,6 +858,69 @@ body {
   }
   .filter-bar { flex-direction: column; align-items: stretch; }
   .record-item { grid-template-columns: 1fr; }
+  .modal-overlay {
+    align-items: flex-start;
+    padding: 14px;
+    overflow-y: auto;
+  }
+  .modal,
+  .modal-sm {
+    max-width: none;
+    max-height: calc(100vh - 28px);
+    border-radius: 14px;
+  }
+  .modal-header {
+    padding: 16px 18px 14px;
+  }
+  .modal-header h2 {
+    font-size: 1rem;
+  }
+  .modal-body {
+    padding: 18px;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .form-group-full,
+  .form-message {
+    grid-column: auto;
+  }
+  .form-label {
+    font-size: 0.8rem;
+    margin-bottom: 6px;
+  }
+  .form-input {
+    min-height: 42px;
+    padding: 9px 12px;
+    font-size: 0.88rem;
+  }
+  .form-textarea {
+    min-height: 96px;
+  }
+  .form-help {
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+  .input-action-row {
+    grid-template-columns: 1fr;
+  }
+  .input-action-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .modal-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 18px;
+    padding-top: 14px;
+  }
+  .modal-footer .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 10px 12px;
+  }
 }
   </style>
 </head>
