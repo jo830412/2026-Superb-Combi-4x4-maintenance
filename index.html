@@ -2102,8 +2102,21 @@ function decodeHtmlEntities(value) {
     .replace(/&amp;/g, "&");
 }
 
+function repairMojibake(value) {
+  const text = String(value || "");
+  if (!/[ÂÃÄÅÆÇÈÉÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèé]/.test(text)) return text;
+  if (typeof TextDecoder === "undefined") return text;
+  try {
+    const bytes = Uint8Array.from([...text], ch => ch.charCodeAt(0) & 255);
+    const repaired = new TextDecoder("utf-8").decode(bytes);
+    return repaired.includes("油價") || repaired.includes("無鉛汽油") ? repaired : text;
+  } catch {
+    return text;
+  }
+}
+
 function normalizeFuelPricePage(html) {
-  return decodeHtmlEntities(html)
+  return repairMojibake(decodeHtmlEntities(html))
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
@@ -2157,17 +2170,48 @@ async function fetchTextWithTimeout(url, timeoutMs = 6500) {
   }
 }
 
-async function fetchCurrentFuelPrices() {
-  const urls = [
-    FUEL_PRICE_SOURCE_URL,
-    "https://api.allorigins.win/raw?url=" + encodeURIComponent(FUEL_PRICE_SOURCE_URL)
-  ];
-  let lastError = null;
+function normalizeFuelPriceData(data) {
+  if (!data || !data.prices) return null;
+  const prices = {
+    "92": Number(data.prices["92"]),
+    "95": Number(data.prices["95"]),
+    "98": Number(data.prices["98"])
+  };
+  if (!Number.isFinite(prices["98"]) && !Number.isFinite(prices["95"]) && !Number.isFinite(prices["92"])) return null;
+  return {
+    source: data.source || "油價來源",
+    effectiveAt: data.effectiveAt || data.updatedAt || "",
+    prices
+  };
+}
 
-  for (const url of urls) {
+async function fetchCurrentFuelPrices() {
+  let lastError = null;
+  const strategies = [
+    async () => {
+      const text = await fetchTextWithTimeout(API_URL + "?action=fuelPrice", 6500);
+      const data = normalizeFuelPriceData(JSON.parse(text));
+      if (!data) throw new Error("Apps Script fuel price proxy is not enabled");
+      return data;
+    },
+    async () => parseFuelPricePage(await fetchTextWithTimeout(FUEL_PRICE_SOURCE_URL, 6500)),
+    async () => {
+      const text = await fetchTextWithTimeout(
+        "https://api.allorigins.win/get?url=" + encodeURIComponent(FUEL_PRICE_SOURCE_URL),
+        9000
+      );
+      const json = JSON.parse(text);
+      return parseFuelPricePage(json.contents || "");
+    },
+    async () => parseFuelPricePage(await fetchTextWithTimeout(
+      "https://api.allorigins.win/raw?url=" + encodeURIComponent(FUEL_PRICE_SOURCE_URL),
+      9000
+    ))
+  ];
+
+  for (const strategy of strategies) {
     try {
-      const html = await fetchTextWithTimeout(url);
-      const data = parseFuelPricePage(html);
+      const data = await strategy();
       if (data.prices["98"] || data.prices["95"] || data.prices["92"]) {
         saveFuelPriceCache(data);
         return data;
