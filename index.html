@@ -469,6 +469,8 @@ body {
 .badge-更換  { background: var(--blue-bg);   color: var(--blue);   }
 .badge-改裝升級 { background: var(--purple-bg); color: var(--purple); }
 .badge-加油  { background: var(--orange-bg); color: var(--orange); }
+.badge-inspection { background: var(--yellow); color: #0d1117; }
+.badge-insurance { background: rgba(63, 185, 80, 0.14); color: var(--green); }
 .badge-其他  { background: var(--bg-input);  color: var(--text-secondary); }
 .badge-status { background: var(--bg-input); color: var(--text-muted); }
 .record-status {
@@ -802,7 +804,7 @@ body {
         </div>
       </div>
       <div class="stat-card stat-orange">
-        <div class="stat-icon">⛽</div>
+        <div class="stat-icon">🧪</div>
         <div class="stat-content">
           <div class="stat-topline">
             <div class="stat-value" id="statFuelAdditive">—</div>
@@ -854,6 +856,8 @@ body {
         <button class="pill" data-cat="更換">更換</button>
         <button class="pill" data-cat="改裝升級">改裝升級</button>
         <button class="pill" data-cat="加油">加油</button>
+        <button class="pill" data-cat="檢驗/稅費">檢驗/稅費</button>
+        <button class="pill" data-cat="保險">保險</button>
         <button class="pill" data-cat="其他">其他</button>
       </div>
       <select id="yearFilter" class="year-select">
@@ -901,6 +905,8 @@ body {
                 <option value="更換">更換</option>
                 <option value="改裝升級">改裝升級</option>
                 <option value="加油">加油</option>
+                <option value="檢驗/稅費">檢驗/稅費</option>
+                <option value="保險">保險</option>
                 <option value="其他">其他</option>
               </select>
             </div>
@@ -1135,7 +1141,8 @@ const CONSUMABLE_RULES = [
   { name: "輪胎", icon: "輪", terms: ["輪胎"], intervalKm: 40000, dueKm: 50000 },
   { name: "電瓶", icon: "🔋", terms: ["電瓶"], intervalMonths: 36, dueMonths: 48 },
   { name: "煞車油", icon: "制", terms: ["煞車油"], intervalMonths: 24, dueMonths: 36 },
-  { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], intervalKm: 10000, dueKm: 15000 }
+  { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], intervalKm: 10000, dueKm: 15000 },
+  { name: "年度檢驗/保險", icon: "📅", terms: ["檢驗/稅費", "保險", "驗車", "稅金", "規費", "強制險", "任意險"], intervalMonths: 12, dueMonths: 13 }
 ];
 
 async function initData() {
@@ -1344,7 +1351,7 @@ function getFuelStats() {
 }
 function recordMatchesTerms(r, terms) {
   if (isMileageUpdateRecord(r)) return false;
-  const text = `${r.detail || ""} ${r.note || ""}`;
+  const text = `${r.category || ""} ${r.detail || ""} ${r.note || ""}`;
   return terms.some(term => text.includes(term));
 }
 function getTodayString() {
@@ -1354,8 +1361,16 @@ function getTodayString() {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 function getCategoryEmoji(cat) {
-  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 改裝升級:"⚡", 加油:"⛽", 其他:"📌" };
+  const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 改裝升級:"⚡", 加油:"⛽", "檢驗/稅費":"📅", 保險:"🛡", 其他:"📌" };
   return map[cat] || "📌";
+}
+
+function getCategoryBadgeClass(cat) {
+  const map = {
+    "檢驗/稅費": "badge-inspection",
+    "保險": "badge-insurance"
+  };
+  return map[cat] || "badge-" + escapeHtml(cat);
 }
 
 // ============================================================
@@ -1661,7 +1676,7 @@ function buildCostChart() {
 function buildCategoryChart() {
   const catColors = {
     保養: "#3fb950", 維修: "#f85149", 更換: "#58a6ff",
-    改裝升級: "#bc8cff", 加油: "#f0883e", 其他: "#484f58"
+    改裝升級: "#bc8cff", 加油: "#f0883e", "檢驗/稅費": "#d29922", 保險: "#059669", 其他: "#484f58"
   };
   const catMap = {};
   getServiceRecords().forEach(r => {
@@ -1777,7 +1792,7 @@ function renderRecords() {
     const monthDay = r.date ? r.date.substring(5) : "";
     const emoji = getCategoryEmoji(r.category);
     const safeCategory = escapeHtml(isStatus ? "里程狀態" : r.category);
-    const badgeClass = isStatus ? "badge-status" : "badge-" + escapeHtml(r.category);
+    const badgeClass = isStatus ? "badge-status" : getCategoryBadgeClass(r.category);
     const mileageValue = asNumber(r.mileage);
     const costValue = asNumber(r.cost);
     const noteHtml = r.note ? `<div class="record-note">📝 ${escapeHtml(r.note)}</div>` : "";
