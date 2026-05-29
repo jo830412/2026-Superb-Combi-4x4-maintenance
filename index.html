@@ -1828,6 +1828,10 @@ function isFuelLogRecord(r) {
 function getServiceRecords() {
   return records.filter(r => !isMileageUpdateRecord(r));
 }
+function parseFuelLogFullTank(detail) {
+  const parts = String(detail || "").split("｜").map(part => part.trim());
+  return parts.includes("加滿");
+}
 function parseFuelLog(r, sourceIndex = -1) {
   if (!isFuelLogRecord(r)) return null;
   const detail = r.detail || "";
@@ -1843,7 +1847,7 @@ function parseFuelLog(r, sourceIndex = -1) {
     mileage,
     liters,
     cost: asNumber(r.cost),
-    fullTank: detail.includes("加滿"),
+    fullTank: parseFuelLogFullTank(detail),
     fuelType: (detail.split("｜")[1] || "").trim(),
     unitPrice: unitPriceMatch ? parseFloat(unitPriceMatch[1]) : null,
     discount: discountMatch ? parseFloat(discountMatch[1]) : null,
@@ -2079,10 +2083,10 @@ function updateStats() {
   const fuelStats = getFuelStats();
   document.getElementById("statAvgFuel").textContent = fuelStats.averageKmPerLiter
     ? fuelStats.averageKmPerLiter.toFixed(1)
-    : "—";
+    : fuelStats.logs.length ? "待計算" : "—";
   document.getElementById("statLastFuel").textContent = fuelStats.latestKmPerLiter
     ? fuelStats.latestKmPerLiter.toFixed(1)
-    : "—";
+    : fuelStats.logs.length ? "待計算" : "—";
   document.getElementById("statWarrantyStart").textContent = WARRANTY_START_DATE;
 
   const nextMaintEl = document.getElementById("statNextMaintenance");
