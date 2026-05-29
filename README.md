@@ -7,7 +7,7 @@ Static GitHub Pages site for tracking the 2026 Superb Combi 4x4 maintenance reco
 - Local folder: `C:\Users\chenweihung\Projects\car-maintenance\2026-superb-combi-2.0-4x4`
 - GitHub repo: https://github.com/jo830412/2026-Superb-Combi-4x4-maintenance
 - GitHub Pages: https://jo830412.github.io/2026-Superb-Combi-4x4-maintenance/
-- Apps Script API: `https://script.google.com/macros/s/AKfycbyIpvvy_6masE9eErWlXO9nbAZ-YtsZNG1YUBa0MNTTlrPgJDjR9BinSFjORWDT9pwYSw/exec`
+- Apps Script API: `https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec`
 
 ## Files
 

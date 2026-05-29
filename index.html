@@ -1405,6 +1405,18 @@ const RECORD_TEMPLATES = {
   }
 };
 
+function loadLocalRecords() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error("讀取本機資料失敗", e);
+    return [];
+  }
+}
+
 const CONSUMABLE_RULES = [
   { name: "機油保養", icon: "🛢", terms: ["機油"], intervalKm: 10000, dueKm: 12000 },
   { name: "變速箱油", icon: "⚙", terms: ["變速箱油", "閥體油"], intervalKm: 40000, dueKm: 60000 },
@@ -1440,28 +1452,22 @@ async function initData() {
       lastSyncAt = new Date();
       setSyncStatus("ok", "已同步 " + formatTime(lastSyncAt));
     } else {
-      // 雲端是空的，檢查本機是否以前有資料
-      const saved = localStorage.getItem(STORAGE_KEY);
-      let seededFromLocal = false;
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-           records = parsed;
-           seededFromLocal = true;
-           await syncToCloud(records); // 把舊資料推上雲端
-        }
-      }
-      if (!seededFromLocal) {
-        // 如果本機也沒資料，才用 INITIAL_DATA 兜底並推上雲端
+      const localRecords = loadLocalRecords();
+      if (localRecords.length > 0) {
+        records = localRecords;
+        setSyncStatus("error", "雲端無資料，使用本機資料");
+      } else if (INITIAL_DATA.length > 0) {
         records = [...INITIAL_DATA];
         await syncToCloud(records);
+      } else {
+        records = [];
+        setSyncStatus("ok", "雲端無資料");
       }
     }
   } catch(e) {
     console.error("讀取雲端失敗，使用本機資料", e);
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) records = JSON.parse(saved);
-    else records = [...INITIAL_DATA];
+    const localRecords = loadLocalRecords();
+    records = localRecords.length ? localRecords : [...INITIAL_DATA];
     setSyncStatus("error", "雲端讀取失敗，本機模式");
   }
   refresh();
@@ -1545,6 +1551,33 @@ function formatDateYMD(date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
+function formatDateYM(date) {
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${date.getFullYear()}-${month}`;
+}
+function compareRecordsNewestFirst(a, b) {
+  const dateCompare = String(b.date || "").localeCompare(String(a.date || ""));
+  if (dateCompare) return dateCompare;
+
+  const mileageA = Number(a.mileage);
+  const mileageB = Number(b.mileage);
+  const hasMileageA = Number.isFinite(mileageA);
+  const hasMileageB = Number.isFinite(mileageB);
+  if (hasMileageA && hasMileageB && mileageA !== mileageB) return mileageB - mileageA;
+  if (hasMileageA !== hasMileageB) return hasMileageB ? 1 : -1;
+
+  return records.indexOf(b) - records.indexOf(a);
+}
+function compareFuelLogsOldestFirst(a, b) {
+  const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+  if (dateCompare) return dateCompare;
+  if (a.mileage !== b.mileage) return a.mileage - b.mileage;
+  return (a.sourceIndex ?? 0) - (b.sourceIndex ?? 0);
+}
+function compareFuelLogsNewestFirst(a, b) {
+  return -compareFuelLogsOldestFirst(a, b);
+}
 function addMonths(date, months) {
   const next = new Date(date);
   next.setMonth(next.getMonth() + months);
@@ -1581,7 +1614,7 @@ function isFuelLogRecord(r) {
 function getServiceRecords() {
   return records.filter(r => !isMileageUpdateRecord(r));
 }
-function parseFuelLog(r) {
+function parseFuelLog(r, sourceIndex = -1) {
   if (!isFuelLogRecord(r)) return null;
   const detail = r.detail || "";
   const litersMatch = detail.match(/([0-9]+(?:\.[0-9]+)?)\s*L/i);
@@ -1601,14 +1634,15 @@ function parseFuelLog(r) {
     unitPrice: unitPriceMatch ? parseFloat(unitPriceMatch[1]) : null,
     discount: discountMatch ? parseFloat(discountMatch[1]) : null,
     netPrice: netPriceMatch ? parseFloat(netPriceMatch[1]) : null,
-    note: r.note || ""
+    note: r.note || "",
+    sourceIndex
   };
 }
 function getFuelLogs() {
   return records
     .map(parseFuelLog)
     .filter(Boolean)
-    .sort((a, b) => a.mileage - b.mileage || a.date.localeCompare(b.date));
+    .sort(compareFuelLogsOldestFirst);
 }
 function getFuelStats() {
   const logs = getFuelLogs();
@@ -1679,9 +1713,9 @@ function getCategoryBadgeClass(cat) {
 // 統計卡片
 // ============================================================
 function updateStats() {
-  const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
+  const sorted = [...records].sort(compareRecordsNewestFirst);
   const serviceRecords = getServiceRecords();
-  const sortedServiceRecords = [...serviceRecords].sort((a, b) => b.date.localeCompare(a.date));
+  const sortedServiceRecords = [...serviceRecords].sort(compareRecordsNewestFirst);
   const today = new Date();
   const oneYearAgo = new Date(today);
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
@@ -1732,7 +1766,7 @@ function updateStats() {
   if (lastMaint && Number.isFinite(lastMaintMileage) && lastMaintMileage > 0) {
     nextMaintEl.textContent = (lastMaintMileage + 10000).toLocaleString("zh-TW") + " km";
   } else if (lastMaint && parseDate(lastMaint.date)) {
-    nextMaintEl.textContent = addMonths(parseDate(lastMaint.date), 12).toISOString().slice(0, 7);
+    nextMaintEl.textContent = formatDateYM(addMonths(parseDate(lastMaint.date), 12));
   } else {
     nextMaintEl.textContent = "—";
   }
@@ -1765,7 +1799,7 @@ function updateStats() {
 
 function getLatestMatchingRecord(terms) {
   return [...records]
-    .sort((a, b) => b.date.localeCompare(a.date))
+    .sort(compareRecordsNewestFirst)
     .find(r => recordMatchesTerms(r, terms));
 }
 
@@ -2082,7 +2116,7 @@ function getFilteredRecords() {
   }
 
   // 日期排序：新到舊
-  list.sort((a, b) => b.date.localeCompare(a.date));
+  list.sort(compareRecordsNewestFirst);
   return list;
 }
 
@@ -2410,7 +2444,7 @@ async function fetchCurrentFuelPrices() {
 function getLatestRecordedFuelPrice(fuelType) {
   return getFuelLogs()
     .filter(log => log.fuelType === fuelType && Number.isFinite(log.unitPrice))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.mileage - a.mileage)[0]?.unitPrice || null;
+    .sort(compareFuelLogsNewestFirst)[0]?.unitPrice || null;
 }
 
 async function loadFuelPriceForSelectedType({ force = false } = {}) {
@@ -2749,7 +2783,7 @@ function handleDeleteConfirm() {
 // 匯出 CSV
 // ============================================================
 function exportCSV() {
-  const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
+  const sorted = [...records].sort(compareRecordsNewestFirst);
   const BOM = "\uFEFF";
   const header = ["日期", "里程(km)", "類別", "詳細內容", "費用(NT$)", "備註"];
   const rows = sorted.map(r => [
@@ -2765,7 +2799,7 @@ function exportCSV() {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href = url;
-  a.download = `車輛保養紀錄_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `車輛保養紀錄_${formatDateYMD(new Date())}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -2780,9 +2814,7 @@ function renderFuelLogSection() {
   if (!tbody || !summary || !empty) return;
 
   const fuelStats = getFuelStats();
-  const logs = [...fuelStats.logs].sort((a, b) =>
-    b.date.localeCompare(a.date) || b.mileage - a.mileage
-  );
+  const logs = [...fuelStats.logs].sort(compareFuelLogsNewestFirst);
   const segmentMap = new Map(
     fuelStats.segments.map(segment => [`${segment.date}|${segment.mileage}`, segment])
   );
