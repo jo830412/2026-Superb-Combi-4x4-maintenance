@@ -1249,7 +1249,7 @@ body {
             </div>
             <div class="form-group">
               <label class="form-label">加油量 (L) <span class="required">*</span></label>
-              <input type="number" id="fuelLogLitersInput" class="form-input" min="0" step="0.01" placeholder="例：45.5" required/>
+              <input type="text" id="fuelLogLitersInput" class="form-input" inputmode="decimal" placeholder="例：45.5" required/>
             </div>
             <div class="form-group">
               <label class="form-label">牌告油價 (NT$/L)</label>
@@ -1361,6 +1361,8 @@ const INITIAL_DATA = [];
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
+const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
+const FIRST_INSPECTION_INTERVAL_MONTHS = 60;
 const DEFAULT_FUEL_TYPE = "98";
 const DEFAULT_FUEL_DISCOUNT = 1.8;
 const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
@@ -1410,7 +1412,17 @@ const CONSUMABLE_RULES = [
   { name: "電瓶", icon: "🔋", terms: ["電瓶"], intervalMonths: 36, dueMonths: 48 },
   { name: "煞車油", icon: "制", terms: ["煞車油"], intervalMonths: 24, dueMonths: 36 },
   { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], intervalKm: 10000, dueKm: 15000 },
-  { name: "年度檢驗/保險", icon: "📅", terms: ["檢驗/稅費", "保險", "驗車", "稅金", "規費", "強制險", "任意險"], intervalMonths: 12, dueMonths: 13 }
+  { name: "保險", icon: "🛡", terms: ["保險", "強制險", "任意險"], intervalMonths: 12, dueMonths: 13 },
+  {
+    name: "驗車",
+    icon: "📅",
+    terms: ["驗車", "定檢", "定期檢驗", "車輛檢驗"],
+    intervalMonths: 12,
+    dueMonths: 13,
+    firstDueFrom: VEHICLE_DELIVERY_DATE,
+    firstDueMonths: FIRST_INSPECTION_INTERVAL_MONTHS,
+    firstDueMeta: "自用小客車新車未滿 5 年免定檢"
+  }
 ];
 
 async function initData() {
@@ -1516,12 +1528,22 @@ function formatMileage(n) {
 function formatNumberOrDash(value, digits = 1) {
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
+function parseDecimalInput(value) {
+  const normalized = String(value ?? "").trim().replace(/[，,．]/g, ".");
+  return normalized ? Number(normalized) : NaN;
+}
 function getYear(dateStr) {
   return dateStr ? dateStr.substring(0, 4) : "";
 }
 function parseDate(dateStr) {
   const d = dateStr ? new Date(dateStr + "T00:00:00") : null;
   return d && !Number.isNaN(d.getTime()) ? d : null;
+}
+function formatDateYMD(date) {
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 function addMonths(date, months) {
   const next = new Date(date);
@@ -1750,6 +1772,27 @@ function getLatestMatchingRecord(terms) {
 function buildTrackerState(rule) {
   const currentMileage = getCurrentMileage();
   const latest = getLatestMatchingRecord(rule.terms);
+  if (!latest && rule.firstDueMonths) {
+    const startDate = parseDate(rule.firstDueFrom);
+    if (!startDate) {
+      return { status: "missing", value: "缺日期", meta: "缺少新車起算日" };
+    }
+    const firstDueDate = addMonths(startDate, rule.firstDueMonths);
+    const remainingMonths = diffMonths(new Date(), firstDueDate);
+    const dueLabel = formatDateYMD(firstDueDate);
+    if (remainingMonths <= 0) {
+      return {
+        status: "due",
+        value: "該驗車",
+        meta: `首次驗車約 ${dueLabel} / ${rule.firstDueMeta || ""}`.trim()
+      };
+    }
+    return {
+      status: "ok",
+      value: "剩 " + remainingMonths + " 個月",
+      meta: `首次驗車約 ${dueLabel} / ${rule.firstDueMeta || ""}`.trim()
+    };
+  }
   if (!latest) {
     return {
       status: "missing",
@@ -2414,9 +2457,9 @@ async function loadFuelPriceForSelectedType({ force = false } = {}) {
 }
 
 function getFuelLogCalculatedCost() {
-  const liters = parseFloat(document.getElementById("fuelLogLitersInput").value);
-  const unitPrice = parseFloat(document.getElementById("fuelLogUnitPriceInput").value);
-  const discount = parseFloat(document.getElementById("fuelLogDiscountInput").value) || 0;
+  const liters = parseDecimalInput(document.getElementById("fuelLogLitersInput").value);
+  const unitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
+  const discount = parseDecimalInput(document.getElementById("fuelLogDiscountInput").value) || 0;
   if (!Number.isFinite(liters) || liters <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) return null;
   return {
     unitPrice,
@@ -2537,7 +2580,7 @@ function handleFuelLogSubmit(e) {
   e.preventDefault();
   const date = document.getElementById("fuelLogDateInput").value;
   const mileage = parseInt(document.getElementById("fuelLogMileageInput").value);
-  const liters = parseFloat(document.getElementById("fuelLogLitersInput").value);
+  const liters = parseDecimalInput(document.getElementById("fuelLogLitersInput").value);
   const calculatedFuelCost = getFuelLogCalculatedCost();
   const costInputValue = document.getElementById("fuelLogCostInput").value;
   const cost = costInputValue ? parseInt(costInputValue) : (calculatedFuelCost ? calculatedFuelCost.total : 0);
