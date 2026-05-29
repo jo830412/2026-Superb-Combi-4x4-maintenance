@@ -2296,6 +2296,7 @@ function updateFilterSummary(filtered) {
 // 圖表
 // ============================================================
 function buildCharts() {
+  if (typeof Chart === "undefined") return;
   buildCostChart();
   buildCategoryChart();
 }
@@ -3248,8 +3249,10 @@ function handleFormSubmit(e) {
   }
 
   const maxMileage = getMaxMileage(idx);
+  const originalMileage = idx >= 0 ? Number(records[idx]?.mileage) : null;
+  const mileageChanged = idx === -1 || originalMileage !== rec.mileage;
   const saveBtn = e.submitter || document.querySelector("#recordForm button[type='submit']");
-  if (rec.mileage !== null && maxMileage > 0 && rec.mileage < maxMileage && !saveBtn.dataset.confirmedMileage) {
+  if (rec.mileage !== null && mileageChanged && maxMileage > 0 && rec.mileage < maxMileage && !saveBtn.dataset.confirmedMileage) {
     showFormMessage("info", "這筆里程低於目前最高里程 " + maxMileage.toLocaleString("zh-TW") + " km；若是在補登舊紀錄，請再按一次儲存。");
     saveBtn.dataset.confirmedMileage = "true";
     return;
