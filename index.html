@@ -138,6 +138,12 @@ body {
   background: var(--yellow);
   box-shadow: 0 0 0 4px rgba(210,153,34,0.12);
 }
+.sync-warn {
+  color: var(--yellow);
+  border-color: rgba(210,153,34,0.45);
+  background: rgba(210,153,34,0.08);
+}
+.sync-warn::before { background: var(--yellow); }
 .sync-error {
   color: var(--red);
   border-color: rgba(248,81,73,0.45);
@@ -301,6 +307,12 @@ body {
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.4;
+}
+.tracker-next {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 /* ============================================================
@@ -562,6 +574,9 @@ body {
 .record-status:hover {
   opacity: 0.92;
 }
+.record-mobile-summary {
+  display: none;
+}
 
 .record-detail {
   font-size: 0.88rem;
@@ -760,6 +775,46 @@ body {
     align-items: stretch;
   }
   .records-header { display: none; }
+  .record-mobile-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    grid-column: 1 / -1;
+    align-items: start;
+  }
+  .record-mobile-main {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+  .record-mobile-date {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .record-mobile-cost {
+    color: var(--green);
+    font-weight: 700;
+    font-size: 0.92rem;
+    white-space: nowrap;
+  }
+  .record-mobile-cost.cost-zero {
+    color: var(--text-muted);
+  }
+  .record-mobile-detail {
+    grid-column: 1 / -1;
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    line-height: 1.4;
+  }
+  .record-mobile-meta {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 0.74rem;
+  }
   .mobile-label { display: block; }
   .record-field {
     display: flex;
@@ -767,12 +822,14 @@ body {
     justify-content: space-between;
     gap: 12px;
   }
-  .record-date, .record-mileage, .record-cost { text-align: left; }
-  .record-detail {
-    grid-column: 1 / -1;
-    display: block;
+  .record-item .record-date,
+  .record-item .record-mileage,
+  .record-item .record-cost,
+  .record-item .record-category,
+  .record-item .record-detail {
+    display: none;
   }
-  .record-detail .mobile-label { margin-bottom: 4px; }
+  .record-date, .record-mileage, .record-cost { text-align: left; }
   .record-actions { justify-content: flex-start; }
 }
 @media (max-width: 600px) {
@@ -1178,10 +1235,16 @@ body {
               <select id="formTemplate" class="form-input">
                 <option value="">不套用模板</option>
                 <option value="oil">機油保養</option>
+                <option value="regularMaintenance">定期保養</option>
                 <option value="tire">輪胎更換</option>
                 <option value="battery">電瓶更換</option>
                 <option value="brake">煞車系統</option>
                 <option value="transmission">變速箱保養</option>
+                <option value="insuranceRenewal">保險續保</option>
+                <option value="licenseTax">牌照稅</option>
+                <option value="fuelTax">燃料稅</option>
+                <option value="inspection">驗車</option>
+                <option value="fuelAdditive">汽油精添加</option>
               </select>
             </div>
             <div class="form-group form-group-full">
@@ -1266,7 +1329,7 @@ body {
             <div class="form-group">
               <label class="form-label">油費 (NT$)</label>
               <input type="number" id="fuelLogCostInput" class="form-input" min="0" step="1" placeholder="0"/>
-              <div class="form-help" id="fuelLogNetPriceHint"></div>
+              <div class="form-help" id="fuelLogNetPriceHint">輸入加油量與油價後會自動試算，實際付款金額可直接修改。</div>
             </div>
             <div class="form-group">
               <label class="form-label">油品</label>
@@ -1383,6 +1446,11 @@ const RECORD_TEMPLATES = {
     detail: "機油、機油芯",
     note: "例行機油保養"
   },
+  regularMaintenance: {
+    category: "保養",
+    detail: "定期保養、基本檢查",
+    note: "可補充工單號碼、保養項目與下次建議"
+  },
   tire: {
     category: "更換",
     detail: "輪胎更換、安裝、平衡",
@@ -1402,6 +1470,31 @@ const RECORD_TEMPLATES = {
     category: "保養",
     detail: "變速箱油、濾網、油底殼檢查",
     note: "變速箱相關保養"
+  },
+  insuranceRenewal: {
+    category: "保險",
+    detail: "強制險、任意險續保",
+    note: "可補充保險公司、保單號碼與保障期間"
+  },
+  licenseTax: {
+    category: "檢驗/稅費",
+    detail: "牌照稅",
+    note: "年度稅費"
+  },
+  fuelTax: {
+    category: "檢驗/稅費",
+    detail: "燃料稅",
+    note: "年度稅費"
+  },
+  inspection: {
+    category: "檢驗/稅費",
+    detail: "驗車、定期檢驗",
+    note: "可補充驗車結果與下次檢驗日期"
+  },
+  fuelAdditive: {
+    category: "其他",
+    detail: "汽油精添加",
+    note: "每 3,000-4,000 km 添加"
   }
 };
 
@@ -1455,7 +1548,7 @@ async function initData() {
       const localRecords = loadLocalRecords();
       if (localRecords.length > 0) {
         records = localRecords;
-        setSyncStatus("error", "雲端無資料，使用本機資料");
+        setSyncStatus("warn", "本機已保存，雲端無資料");
       } else if (INITIAL_DATA.length > 0) {
         records = [...INITIAL_DATA];
         await syncToCloud(records);
@@ -1468,7 +1561,7 @@ async function initData() {
     console.error("讀取雲端失敗，使用本機資料", e);
     const localRecords = loadLocalRecords();
     records = localRecords.length ? localRecords : [...INITIAL_DATA];
-    setSyncStatus("error", "雲端讀取失敗，本機模式");
+    setSyncStatus("error", "本機已保存，雲端讀取失敗");
   }
   refresh();
 }
@@ -1487,13 +1580,14 @@ async function syncToCloud(data) {
     return true;
   } catch(e) {
     console.error("同步至雲端失敗", e);
-    setSyncStatus("error", "同步失敗，點擊重試");
+    setSyncStatus("error", "本機已保存，點擊重試同步");
     return false;
   }
 }
 
 function saveRecords(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  setSyncStatus("syncing", "本機已保存，同步中");
   syncToCloud(data); // 背景同步
 }
 
@@ -1509,7 +1603,7 @@ function setSyncStatus(state, text) {
   if (!el) return;
   el.className = "sync-status sync-" + state;
   el.textContent = text;
-  el.title = state === "error" ? "點擊重試同步" : "最後同步狀態";
+  el.title = state === "error" || state === "warn" ? "本機資料仍保留，點擊可重試同步" : "最後同步狀態";
 }
 
 // ============================================================
@@ -1818,13 +1912,15 @@ function buildTrackerState(rule) {
       return {
         status: "due",
         value: "該驗車",
-        meta: `首次驗車約 ${dueLabel} / ${rule.firstDueMeta || ""}`.trim()
+        meta: `下一次約 ${dueLabel}`,
+        next: rule.firstDueMeta || ""
       };
     }
     return {
       status: "ok",
       value: "剩 " + remainingMonths + " 個月",
-      meta: `首次驗車約 ${dueLabel} / ${rule.firstDueMeta || ""}`.trim()
+      meta: `下一次約 ${dueLabel}`,
+      next: rule.firstDueMeta || ""
     };
   }
   if (!latest) {
@@ -1873,24 +1969,29 @@ function buildTrackerState(rule) {
     return { status: "missing", value: "缺日期", meta: "最近紀錄缺少日期" };
   }
   const usedMonths = diffMonths(latestDate);
+  const nextDate = addMonths(latestDate, rule.intervalMonths);
+  const nextLabel = formatDateYMD(nextDate);
   if (usedMonths >= rule.dueMonths) {
     return {
       status: "due",
       value: "該處理",
-      meta: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
+      meta: `下一次約 ${nextLabel}`,
+      next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
     };
   }
   if (usedMonths >= rule.intervalMonths) {
     return {
       status: "soon",
       value: "可安排",
-      meta: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
+      meta: `下一次約 ${nextLabel}`,
+      next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
     };
   }
   return {
     status: "ok",
     value: "剩 " + (rule.intervalMonths - usedMonths) + " 個月",
-    meta: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
+    meta: `下一次約 ${nextLabel}`,
+    next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
   };
 }
 
@@ -1906,6 +2007,7 @@ function renderConsumableTrackers() {
         </div>
         <div class="tracker-value">${escapeHtml(state.value)}</div>
         <div class="tracker-meta">${escapeHtml(state.meta)}</div>
+        ${state.next ? `<div class="tracker-next">${escapeHtml(state.next)}</div>` : ""}
       </div>`;
   }).join("");
 }
@@ -2154,10 +2256,23 @@ function renderRecords() {
     const badgeClass = isStatus ? "badge-status" : getCategoryBadgeClass(r.category);
     const mileageValue = asNumber(r.mileage);
     const costValue = asNumber(r.cost);
+    const compactDate = r.date || "未填日期";
+    const compactMileage = mileageValue ? mileageValue.toLocaleString("zh-TW") + " km" : "未填里程";
+    const compactCost = costValue ? "NT$ " + costValue.toLocaleString("zh-TW") : "—";
+    const safeDetail = r.detail ? escapeHtml(r.detail) : "—";
     const noteHtml = r.note ? `<div class="record-note">📝 ${escapeHtml(r.note)}</div>` : "";
+    const mobileNoteHtml = r.note ? `<div class="record-mobile-meta">${compactMileage} · ${escapeHtml(r.note)}</div>` : `<div class="record-mobile-meta">${compactMileage}</div>`;
 
     html += `
     <div class="record-item ${isStatus ? "record-status" : ""}" data-idx="${origIdx}">
+      <div class="record-mobile-summary">
+        <div class="record-mobile-main">
+          <span class="record-mobile-date">${escapeHtml(compactDate)}</span>
+          <span class="record-badge ${badgeClass}">${isStatus ? "📍" : emoji} ${safeCategory}</span>
+        </div>
+        <div class="record-mobile-cost ${costValue ? "" : "cost-zero"}">${compactCost}</div>
+        <div class="record-mobile-detail">${safeDetail}${mobileNoteHtml}</div>
+      </div>
       <div class="record-date record-field">
         <span class="mobile-label">日期</span>
         <span class="field-value"><strong>${monthDay}</strong>${year}</span>
@@ -2166,13 +2281,13 @@ function renderRecords() {
         <span class="mobile-label">里程</span>
         <span class="field-value"><strong>${mileageValue ? mileageValue.toLocaleString("zh-TW") : "—"}</strong>${mileageValue ? "km" : ""}</span>
       </div>
-      <div class="record-field">
+      <div class="record-field record-category">
         <span class="mobile-label">類別</span>
         <span class="record-badge ${badgeClass}">${isStatus ? "📍" : emoji} ${safeCategory}</span>
       </div>
       <div class="record-detail record-field">
         <span class="mobile-label">詳細內容</span>
-        <span class="field-value">${r.detail ? escapeHtml(r.detail) : "—"}${noteHtml}</span>
+        <span class="field-value">${safeDetail}${noteHtml}</span>
       </div>
       <div class="record-cost record-field ${costValue ? "" : "cost-zero"}">
         <span class="mobile-label">費用</span>
@@ -2508,13 +2623,14 @@ function updateFuelLogCostFromDiscount() {
   const costInput = document.getElementById("fuelLogCostInput");
   const hint = document.getElementById("fuelLogNetPriceHint");
   if (!calc) {
-    hint.textContent = "";
+    hint.textContent = "輸入加油量與油價後會自動試算，實際付款金額可直接修改。";
     return;
   }
   costInput.value = calc.total;
   hint.textContent =
     "實付單價 " + calc.netPrice.toFixed(1) +
-    " 元/L，預估油費 NT$ " + calc.total.toLocaleString("zh-TW");
+    " 元/L，預估油費 NT$ " + calc.total.toLocaleString("zh-TW") +
+    "；若發票金額不同可直接修改。";
 }
 
 function openMileageModal() {
@@ -2540,7 +2656,7 @@ function openFuelLogModal() {
   document.getElementById("fuelLogUnitPriceInput").value = "";
   document.getElementById("fuelLogDiscountInput").value = String(DEFAULT_FUEL_DISCOUNT);
   document.getElementById("fuelLogCostInput").value = "";
-  document.getElementById("fuelLogNetPriceHint").textContent = "";
+  document.getElementById("fuelLogNetPriceHint").textContent = "輸入加油量與油價後會自動試算，實際付款金額可直接修改。";
   document.getElementById("fuelLogTypeInput").value = DEFAULT_FUEL_TYPE;
   document.getElementById("fuelLogFullTankInput").value = "yes";
   document.getElementById("fuelLogNoteInput").value = "全國加油站自助";
