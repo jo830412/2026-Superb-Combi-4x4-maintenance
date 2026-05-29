@@ -318,6 +318,169 @@ body {
 }
 
 /* ============================================================
+   Owner Dashboard
+   ============================================================ */
+.owner-section {
+  max-width: 1200px;
+  margin: 18px auto 0;
+  padding: 0 24px;
+}
+.owner-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.4fr);
+  gap: 18px;
+}
+.owner-kicker {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.owner-title {
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.owner-sub {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.owner-metrics {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.owner-metric {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: var(--bg-input);
+}
+.owner-metric-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.owner-metric-value {
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.owner-actions {
+  display: grid;
+  gap: 10px;
+}
+.owner-action {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: rgba(33,38,45,0.72);
+}
+.owner-action-due { border-left-color: var(--red); }
+.owner-action-soon { border-left-color: var(--orange); }
+.owner-action-ok { border-left-color: var(--green); }
+.owner-action-info { border-left-color: var(--blue); }
+.owner-action-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.owner-action-name {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.owner-action-status {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.owner-action-due .owner-action-status { color: var(--red); }
+.owner-action-soon .owner-action-status { color: var(--orange); }
+.owner-action-ok .owner-action-status { color: var(--green); }
+.owner-action-meta {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+/* ============================================================
+   Ownership Cost
+   ============================================================ */
+.ownership-section {
+  max-width: 1200px;
+  margin: 16px auto 0;
+  padding: 0 24px;
+}
+.ownership-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+}
+.ownership-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.ownership-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.ownership-summary {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-align: right;
+  line-height: 1.45;
+}
+.ownership-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.ownership-item {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: rgba(33,38,45,0.72);
+}
+.ownership-item-name {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.ownership-item-value {
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.ownership-item-share {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+/* ============================================================
    Charts
    ============================================================ */
 .charts-section {
@@ -967,6 +1130,37 @@ body {
     flex-shrink: 0;
   }
   .filter-bar { flex-direction: column; align-items: stretch; }
+  .owner-section { padding: 0 16px; }
+  .owner-panel {
+    grid-template-columns: 1fr;
+    padding: 16px;
+    gap: 14px;
+  }
+  .owner-title {
+    font-size: 1.08rem;
+  }
+  .owner-metrics {
+    grid-template-columns: 1fr;
+  }
+  .owner-action-top {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ownership-section { padding: 0 16px; }
+  .ownership-panel {
+    padding: 16px;
+  }
+  .ownership-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ownership-summary {
+    text-align: left;
+  }
+  .ownership-grid {
+    grid-template-columns: 1fr;
+  }
   .record-item { grid-template-columns: 1fr; }
   .modal-overlay {
     align-items: flex-start;
@@ -1106,7 +1300,7 @@ body {
         <div class="stat-icon">🛡</div>
         <div class="stat-content">
           <div class="stat-value" id="statWarrantyStart">—</div>
-          <div class="stat-label">保固起算</div>
+          <div class="stat-label">保固期限</div>
         </div>
       </div>
       <div class="stat-card stat-orange">
@@ -1134,7 +1328,7 @@ body {
         <div class="stat-icon">/km</div>
         <div class="stat-content">
           <div class="stat-value" id="statCostPerKm">—</div>
-          <div class="stat-label">每公里維護成本</div>
+          <div class="stat-label">每公里持有成本</div>
         </div>
       </div>
       <div class="stat-card stat-blue">
@@ -1154,6 +1348,43 @@ body {
           <div class="stat-label">總紀錄筆數</div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- 車主待辦摘要 -->
+  <section class="owner-section">
+    <div class="owner-panel">
+      <div class="owner-overview">
+        <div class="owner-kicker">車主待辦</div>
+        <div class="owner-title" id="ownerPriorityTitle">正在整理車況</div>
+        <div class="owner-sub" id="ownerPriorityMeta">依照目前里程、保養紀錄、耗材、稅費與保固期限排序。</div>
+        <div class="owner-metrics">
+          <div class="owner-metric">
+            <div class="owner-metric-label">年度固定費</div>
+            <div class="owner-metric-value" id="ownerFixedCost">—</div>
+          </div>
+          <div class="owner-metric">
+            <div class="owner-metric-label">下個法定項目</div>
+            <div class="owner-metric-value" id="ownerNextLegal">—</div>
+          </div>
+          <div class="owner-metric">
+            <div class="owner-metric-label">資料完整度</div>
+            <div class="owner-metric-value" id="ownerDataHealth">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="owner-actions" id="ownerActionList"></div>
+    </div>
+  </section>
+
+  <!-- 持有成本摘要 -->
+  <section class="ownership-section">
+    <div class="ownership-panel">
+      <div class="ownership-header">
+        <h2 class="ownership-title">持有成本摘要</h2>
+        <div class="ownership-summary" id="ownershipSummary">尚無費用資料</div>
+      </div>
+      <div class="ownership-grid" id="ownershipCostGrid"></div>
     </div>
   </section>
 
@@ -1521,11 +1752,41 @@ const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
+const WARRANTY_MONTHS = 48;
 const FIRST_INSPECTION_INTERVAL_MONTHS = 60;
+const MAINTENANCE_INTERVAL_KM = 10000;
+const MAINTENANCE_DUE_KM = 12000;
+const MAINTENANCE_INTERVAL_MONTHS = 12;
+const MAINTENANCE_DUE_MONTHS = 13;
 const DEFAULT_FUEL_TYPE = "98";
 const DEFAULT_FUEL_DISCOUNT = 1.8;
 const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v1";
+const VEHICLE_PROFILE = {
+  name: "2026 Superb Combi 2.0 TSI 4x4",
+  displacementCc: 1984,
+  fuel: "汽油"
+};
+const FIXED_OWNER_COSTS = [
+  {
+    name: "使用牌照稅",
+    icon: "牌",
+    terms: ["牌照稅", "使用牌照稅"],
+    month: 4,
+    startDay: 1,
+    endDay: 30,
+    amount: 11230
+  },
+  {
+    name: "公路養管費",
+    icon: "路",
+    terms: ["燃料稅", "燃料費", "汽燃費", "公路養管費"],
+    month: 7,
+    startDay: 1,
+    endDay: 31,
+    amount: 6180
+  }
+];
 
 let records = [];
 let currentFilter = "全部";
@@ -1609,6 +1870,19 @@ function loadLocalRecords() {
   }
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const CONSUMABLE_RULES = [
   { name: "機油保養", icon: "🛢", terms: ["機油"], intervalKm: 10000, dueKm: 12000 },
   { name: "變速箱油", icon: "⚙", terms: ["變速箱油", "閥體油"], intervalKm: 40000, dueKm: 60000 },
@@ -1634,7 +1908,7 @@ async function initData() {
   setSyncStatus("syncing", "同步中");
   
   try {
-    const res = await fetch(API_URL);
+    const res = await fetchWithTimeout(API_URL);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     
@@ -1668,7 +1942,7 @@ async function initData() {
 async function syncToCloud(data) {
   setSyncStatus("syncing", "同步中");
   try {
-    const res = await fetch(API_URL, {
+    const res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       body: JSON.stringify(data),
       redirect: 'follow'
@@ -1715,6 +1989,9 @@ function formatCost(n) {
 function formatCompactCost(n) {
   if (!n) return "0";
   return n >= 10000 ? (n / 10000).toFixed(1) + " 萬" : n.toLocaleString("zh-TW");
+}
+function formatCompactCurrency(n) {
+  return "NT$ " + formatCompactCost(n);
 }
 function asNumber(value) {
   const n = Number(value);
@@ -1798,6 +2075,13 @@ function diffMonths(from, to = new Date()) {
   if (!from) return 0;
   return Math.max(0, (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth());
 }
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+function diffDays(from, to = new Date()) {
+  if (!from) return 0;
+  return Math.ceil((startOfDay(from) - startOfDay(to)) / 86400000);
+}
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({
     "&": "&amp;",
@@ -1827,6 +2111,9 @@ function isFuelLogRecord(r) {
 }
 function getServiceRecords() {
   return records.filter(r => !isMileageUpdateRecord(r));
+}
+function getCostRecords() {
+  return getServiceRecords().filter(r => asNumber(r.cost) > 0);
 }
 function parseFuelLogFullTank(detail) {
   const parts = String(detail || "").split("｜").map(part => part.trim());
@@ -2071,13 +2358,9 @@ function updateStats() {
     ? formatCompactCost(recentTotal)
     : "0";
 
-  const maintenanceCost = serviceRecords
-    .filter(r => r.category !== "改裝升級" && r.category !== "加油" && r.category !== "其他")
-    .reduce((sum, r) => sum + asNumber(r.cost), 0);
-  const mileageValues = records.map(r => Number(r.mileage)).filter(v => Number.isFinite(v) && v > 0);
-  const mileageSpan = mileageValues.length > 1 ? Math.max(...mileageValues) - Math.min(...mileageValues) : 0;
-  document.getElementById("statCostPerKm").textContent = mileageSpan > 0
-    ? "NT$ " + (maintenanceCost / mileageSpan).toFixed(1)
+  const ownershipCost = getCostRecords().reduce((sum, r) => sum + asNumber(r.cost), 0);
+  document.getElementById("statCostPerKm").textContent = maxMile > 0 && ownershipCost > 0
+    ? "NT$ " + (ownershipCost / maxMile).toFixed(1)
     : "—";
 
   const fuelStats = getFuelStats();
@@ -2087,14 +2370,17 @@ function updateStats() {
   document.getElementById("statLastFuel").textContent = fuelStats.latestKmPerLiter
     ? fuelStats.latestKmPerLiter.toFixed(1)
     : fuelStats.logs.length ? "待計算" : "—";
-  document.getElementById("statWarrantyStart").textContent = WARRANTY_START_DATE;
+  const warrantyStart = parseDate(WARRANTY_START_DATE);
+  document.getElementById("statWarrantyStart").textContent = warrantyStart
+    ? formatDateYMD(addMonths(warrantyStart, WARRANTY_MONTHS))
+    : "—";
 
   const nextMaintEl = document.getElementById("statNextMaintenance");
   const lastMaintMileage = lastMaint ? Number(lastMaint.mileage) : null;
   if (lastMaint && Number.isFinite(lastMaintMileage) && lastMaintMileage > 0) {
-    nextMaintEl.textContent = (lastMaintMileage + 10000).toLocaleString("zh-TW") + " km";
+    nextMaintEl.textContent = (lastMaintMileage + MAINTENANCE_INTERVAL_KM).toLocaleString("zh-TW") + " km";
   } else if (lastMaint && parseDate(lastMaint.date)) {
-    nextMaintEl.textContent = formatDateYM(addMonths(parseDate(lastMaint.date), 12));
+    nextMaintEl.textContent = formatDateYM(addMonths(parseDate(lastMaint.date), MAINTENANCE_INTERVAL_MONTHS));
   } else {
     nextMaintEl.textContent = "—";
   }
@@ -2227,6 +2513,380 @@ function buildTrackerState(rule) {
     meta: `下一次約 ${nextLabel}`,
     next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
   };
+}
+
+function getLastMaintenanceRecord() {
+  return [...getServiceRecords()]
+    .sort(compareRecordsNewestFirst)
+    .find(r => r.category === "保養");
+}
+
+function getMaintenanceActionState() {
+  const currentMileage = getCurrentMileage();
+  const latest = getLastMaintenanceRecord();
+  if (!latest) {
+    return {
+      status: "missing",
+      name: "建立保養基準",
+      statusText: "缺基準",
+      meta: "新增交車檢查、首保或最近一次原廠保養，才能準確推估下次保養。"
+    };
+  }
+
+  const lastMileage = Number(latest.mileage);
+  const latestDate = parseDate(latest.date);
+  const usedKm = Number.isFinite(lastMileage) && currentMileage
+    ? Math.max(currentMileage - lastMileage, 0)
+    : null;
+  const usedMonths = latestDate ? diffMonths(latestDate) : null;
+  const nextMileage = Number.isFinite(lastMileage) && lastMileage > 0
+    ? lastMileage + MAINTENANCE_INTERVAL_KM
+    : null;
+  const nextDate = latestDate ? addMonths(latestDate, MAINTENANCE_INTERVAL_MONTHS) : null;
+  const metaParts = [];
+  if (nextMileage) metaParts.push("下次約 " + nextMileage.toLocaleString("zh-TW") + " km");
+  if (nextDate) metaParts.push("或 " + formatDateYMD(nextDate));
+  if (usedKm != null) metaParts.push("已跑 " + usedKm.toLocaleString("zh-TW") + " km");
+  if (usedMonths != null) metaParts.push("已過 " + usedMonths + " 個月");
+
+  if ((usedKm != null && usedKm >= MAINTENANCE_DUE_KM) || (usedMonths != null && usedMonths >= MAINTENANCE_DUE_MONTHS)) {
+    return {
+      status: "due",
+      name: "安排定期保養",
+      statusText: "該保養",
+      meta: metaParts.join(" / ")
+    };
+  }
+  if ((usedKm != null && usedKm >= MAINTENANCE_INTERVAL_KM) || (usedMonths != null && usedMonths >= MAINTENANCE_INTERVAL_MONTHS)) {
+    return {
+      status: "soon",
+      name: "安排定期保養",
+      statusText: "可安排",
+      meta: metaParts.join(" / ")
+    };
+  }
+  return {
+    status: "ok",
+    name: "定期保養",
+    statusText: "正常",
+    meta: metaParts.join(" / ") || "最近保養：" + (latest.date || "未填日期")
+  };
+}
+
+function hasMatchingRecordInYear(terms, year) {
+  return records.some(r => getYear(r.date) === String(year) && recordMatchesTerms(r, terms));
+}
+
+function getFixedCostState(item, today = new Date()) {
+  const year = today.getFullYear();
+  const paidThisYear = hasMatchingRecordInYear(item.terms, year);
+  const dueStart = new Date(year, item.month - 1, item.startDay);
+  const dueEnd = new Date(year, item.month - 1, item.endDay);
+  const daysToStart = diffDays(dueStart, today);
+  const daysToEnd = diffDays(dueEnd, today);
+  const amountText = "NT$ " + item.amount.toLocaleString("zh-TW");
+
+  if (paidThisYear) {
+    const nextDueStart = today > dueEnd
+      ? new Date(year + 1, item.month - 1, item.startDay)
+      : dueStart;
+    return {
+      ...item,
+      status: "ok",
+      statusText: "已記錄",
+      dueDate: nextDueStart,
+      meta: `${year} 年已記錄，年度金額 ${amountText}`
+    };
+  }
+  if (daysToStart <= 0 && daysToEnd >= 0) {
+    return {
+      ...item,
+      status: "due",
+      statusText: "本月繳納",
+      dueDate: dueStart,
+      meta: `${item.month}/${item.startDay}-${item.month}/${item.endDay}，預估 ${amountText}`
+    };
+  }
+  if (daysToEnd < 0) {
+    return {
+      ...item,
+      status: "due",
+      statusText: "未記錄",
+      dueDate: dueStart,
+      meta: `${year} 年繳費期已過，若已繳請補登紀錄。`
+    };
+  }
+  if (daysToStart <= 45) {
+    return {
+      ...item,
+      status: "soon",
+      statusText: "快到了",
+      dueDate: dueStart,
+      meta: `${item.month}/${item.startDay}-${item.month}/${item.endDay}，預估 ${amountText}`
+    };
+  }
+  return {
+    ...item,
+    status: "ok",
+    statusText: "未到期",
+    dueDate: dueStart,
+    meta: `${item.month}/${item.startDay}-${item.month}/${item.endDay}，預估 ${amountText}`
+  };
+}
+
+function getNextLegalState() {
+  const today = new Date();
+  const states = FIXED_OWNER_COSTS.map(item => getFixedCostState(item, today));
+  const actionable = states.find(state => state.status === "due" || state.status === "soon");
+  if (actionable) return actionable;
+  return [...states].sort((a, b) => a.dueDate - b.dueDate)[0] || null;
+}
+
+function getWarrantyState(today = new Date()) {
+  const startDate = parseDate(WARRANTY_START_DATE);
+  if (!startDate) return null;
+  const endDate = addMonths(startDate, WARRANTY_MONTHS);
+  const daysLeft = diffDays(endDate, today);
+  if (daysLeft < 0) {
+    return {
+      status: "due",
+      name: "確認保固權益",
+      statusText: "已到期",
+      meta: `原廠/延長保固推估至 ${formatDateYMD(endDate)}，請依保固書確認。`
+    };
+  }
+  if (daysLeft <= 90) {
+    return {
+      status: "soon",
+      name: "保固到期前檢查",
+      statusText: "快到期",
+      meta: `推估 ${formatDateYMD(endDate)} 到期，建議到期前安排健檢。`
+    };
+  }
+  return {
+    status: "ok",
+    name: "保固期限",
+    statusText: "有效",
+    meta: `推估至 ${formatDateYMD(endDate)}，仍建議以保固書為準。`
+  };
+}
+
+function getDataHealthText() {
+  const checks = [
+    getCurrentMileage() > 0,
+    !!getLastMaintenanceRecord(),
+    getFuelLogs().length > 0,
+    !!getLatestMatchingRecord(["保險", "強制險", "任意險"]),
+    !!getLatestMatchingRecord(["牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費"])
+  ];
+  const done = checks.filter(Boolean).length;
+  return `${done}/${checks.length} 項`;
+}
+
+function buildOwnerActions() {
+  const actions = [];
+  const currentMileage = getCurrentMileage();
+  const maintenance = getMaintenanceActionState();
+  const warranty = getWarrantyState();
+  const fuelStats = getFuelStats();
+
+  if (!currentMileage) {
+    actions.push({
+      status: "info",
+      name: "更新目前里程",
+      statusText: "建議",
+      meta: "里程是保養、耗材與油耗追蹤的基準。"
+    });
+  }
+  actions.push(maintenance);
+
+  CONSUMABLE_RULES
+    .map(rule => ({ rule, state: buildTrackerState(rule) }))
+    .filter(({ state }) => state.status === "due" || state.status === "soon" || state.status === "missing")
+    .forEach(({ rule, state }) => {
+      actions.push({
+        status: state.status,
+        name: rule.name,
+        statusText: state.value,
+        meta: [state.meta, state.next].filter(Boolean).join(" / ")
+      });
+    });
+
+  FIXED_OWNER_COSTS
+    .map(item => getFixedCostState(item))
+    .filter(state => state.status === "due" || state.status === "soon")
+    .forEach(state => {
+      actions.push({
+        status: state.status,
+        name: state.name,
+        statusText: state.statusText,
+        meta: state.meta
+      });
+    });
+
+  if (warranty && warranty.status !== "ok") actions.push(warranty);
+  if (!fuelStats.logs.length) {
+    actions.push({
+      status: "info",
+      name: "建立第一筆加油紀錄",
+      statusText: "油耗基準",
+      meta: "連續兩次加滿後會開始計算平均與最近油耗。"
+    });
+  }
+
+  const rank = { due: 0, soon: 1, missing: 2, info: 3, ok: 4 };
+  actions.sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9));
+
+  if (!actions.some(action => action.status !== "ok")) {
+    const nextLegal = getNextLegalState();
+    return [
+      {
+        status: "ok",
+        name: "目前沒有急迫事項",
+        statusText: "正常",
+        meta: maintenance.meta
+      },
+      nextLegal ? {
+        status: nextLegal.status,
+        name: nextLegal.name,
+        statusText: nextLegal.statusText,
+        meta: nextLegal.meta
+      } : null,
+      warranty
+    ].filter(Boolean);
+  }
+
+  return actions.slice(0, 6);
+}
+
+function renderOwnerDashboard() {
+  const title = document.getElementById("ownerPriorityTitle");
+  const meta = document.getElementById("ownerPriorityMeta");
+  const fixedCost = document.getElementById("ownerFixedCost");
+  const nextLegalEl = document.getElementById("ownerNextLegal");
+  const dataHealth = document.getElementById("ownerDataHealth");
+  const list = document.getElementById("ownerActionList");
+  if (!title || !meta || !fixedCost || !nextLegalEl || !dataHealth || !list) return;
+
+  const actions = buildOwnerActions();
+  const urgentCount = actions.filter(action => action.status === "due").length;
+  const soonCount = actions.filter(action => action.status === "soon").length;
+  const missingCount = actions.filter(action => action.status === "missing").length;
+  const infoCount = actions.filter(action => action.status === "info").length;
+  const nextLegal = getNextLegalState();
+  const annualFixedCost = FIXED_OWNER_COSTS.reduce((sum, item) => sum + item.amount, 0);
+
+  title.textContent = urgentCount
+    ? `${urgentCount} 項需要處理`
+    : soonCount
+      ? `${soonCount} 項近期可安排`
+      : missingCount
+        ? `${missingCount} 項資料待補齊`
+        : infoCount
+          ? `${infoCount} 項建議補登`
+          : "車況追蹤正常";
+  meta.textContent = `${VEHICLE_PROFILE.name}，${VEHICLE_PROFILE.displacementCc} c.c. ${VEHICLE_PROFILE.fuel}；依目前紀錄排序下一步。`;
+  fixedCost.textContent = "約 NT$ " + annualFixedCost.toLocaleString("zh-TW");
+  nextLegalEl.textContent = nextLegal ? `${nextLegal.name} ${formatDateYMD(nextLegal.dueDate)}` : "—";
+  dataHealth.textContent = getDataHealthText();
+
+  list.innerHTML = actions.map(action => `
+    <div class="owner-action owner-action-${escapeHtml(action.status)}">
+      <div class="owner-action-top">
+        <div class="owner-action-name">${escapeHtml(action.name)}</div>
+        <div class="owner-action-status">${escapeHtml(action.statusText)}</div>
+      </div>
+      <div class="owner-action-meta">${escapeHtml(action.meta || "")}</div>
+    </div>
+  `).join("");
+}
+
+function getOwnershipCostBuckets() {
+  const buckets = [
+    {
+      key: "service",
+      name: "保養維修",
+      terms: ["保養", "維修", "更換", "機油", "輪胎", "電瓶", "煞車", "變速箱", "濾網"],
+      total: 0
+    },
+    {
+      key: "fuel",
+      name: "燃料加油",
+      terms: ["加油", "油費", "汽油"],
+      total: 0
+    },
+    {
+      key: "legal",
+      name: "保險稅費",
+      terms: ["保險", "強制險", "任意險", "牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費", "驗車", "檢驗"],
+      total: 0
+    },
+    {
+      key: "accessory",
+      name: "配件改裝",
+      terms: ["改裝", "升級", "隔熱紙", "行車記錄器", "車標", "配件"],
+      total: 0
+    },
+    {
+      key: "other",
+      name: "其他",
+      terms: [],
+      total: 0
+    }
+  ];
+
+  getCostRecords().forEach(record => {
+    const text = `${record.category || ""} ${record.detail || ""} ${record.note || ""}`;
+    const bucket = buckets.find(item => item.terms.some(term => text.includes(term))) || buckets[buckets.length - 1];
+    bucket.total += asNumber(record.cost);
+  });
+
+  return buckets;
+}
+
+function getOwnershipMonths() {
+  const start = parseDate(VEHICLE_DELIVERY_DATE);
+  if (!start) return 1;
+  return Math.max(1, diffMonths(start) + 1);
+}
+function getOwnershipPeriodLabel() {
+  return `交車第 ${getOwnershipMonths()} 個月`;
+}
+
+function renderOwnershipCostPanel() {
+  const summary = document.getElementById("ownershipSummary");
+  const grid = document.getElementById("ownershipCostGrid");
+  if (!summary || !grid) return;
+
+  const buckets = getOwnershipCostBuckets();
+  const total = buckets.reduce((sum, bucket) => sum + bucket.total, 0);
+  const currentMileage = getCurrentMileage();
+  const monthlyAverage = total / getOwnershipMonths();
+  const costPerKm = currentMileage > 0 && total > 0 ? total / currentMileage : null;
+
+  if (!total) {
+    summary.textContent = "尚無費用資料";
+    grid.innerHTML = "";
+    return;
+  }
+
+  summary.textContent = [
+    getOwnershipPeriodLabel(),
+    `累計 ${formatCost(total)}`,
+    `月均 ${formatCompactCurrency(Math.round(monthlyAverage))}`,
+    costPerKm ? `${currentMileage < 1000 ? "每公里暫估" : "每公里"} NT$ ${costPerKm.toFixed(1)}` : "每公里待里程"
+  ].join(" · ");
+
+  grid.innerHTML = buckets.map(bucket => {
+    const share = total ? Math.round((bucket.total / total) * 100) : 0;
+    return `
+      <div class="ownership-item">
+        <div class="ownership-item-name">${escapeHtml(bucket.name)}</div>
+        <div class="ownership-item-value">${formatCompactCurrency(bucket.total)}</div>
+        <div class="ownership-item-share">${share}%</div>
+      </div>
+    `;
+  }).join("");
 }
 
 function renderConsumableTrackers() {
@@ -3371,6 +4031,8 @@ function renderFuelLogSection() {
 // ============================================================
 function refresh() {
   updateStats();
+  renderOwnerDashboard();
+  renderOwnershipCostPanel();
   renderConsumableTrackers();
   renderFuelLogSection();
   populateYearFilter();
