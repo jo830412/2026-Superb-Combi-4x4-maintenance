@@ -34,6 +34,11 @@ The website includes an AI 新增 button that calls the existing Apps Script API
 as an OpenAI proxy. The OpenAI API key must stay in Apps Script Script
 Properties, never in `index.html` or browser storage.
 
+The button first uses local rule-based parsing for common entries such as
+fuel, cleaning, tire, oil, maintenance, tax, and insurance records. This path
+does not call OpenAI or consume API credits. The OpenAI proxy is used only when
+the local parser cannot confidently classify the text.
+
 To enable it:
 
 1. Copy `apps-script/ai-record-assistant.gs` into the deployed Apps Script project.
