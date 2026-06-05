@@ -966,6 +966,19 @@ body {
   font-size: 0.9rem;
   margin-top: 2px;
 }
+.ai-result-note {
+  display: none;
+  border: 1px solid rgba(88,166,255,0.25);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--blue-bg);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.ai-result-note strong {
+  color: var(--text-primary);
+}
 .photo-raw {
   min-height: 92px;
   font-size: 0.78rem;
@@ -1248,6 +1261,9 @@ body {
         </button>
         <button class="btn btn-ghost" id="btnAddFuelLog">
           <span>＋</span> 加油
+        </button>
+        <button class="btn btn-ghost" id="btnAiRecord">
+          🤖 AI 新增
         </button>
         <button class="btn btn-ghost" id="btnPhotoRead">
           📷 讀照片
@@ -1618,6 +1634,33 @@ body {
     </div>
   </div>
 
+  <!-- AI 紀錄助手 Modal -->
+  <div id="aiModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>AI 紀錄助手</h2>
+        <button class="modal-close" id="aiModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="aiRecordForm">
+          <div class="form-grid">
+            <div class="form-group form-group-full">
+              <label class="form-label">輸入紀錄內容</label>
+              <textarea id="aiRecordText" class="form-input form-textarea" rows="4" placeholder="例：全國加油站 98加了1000&#10;例：車子美容 3000&#10;例：今天換輪胎 42000km 18000" required></textarea>
+              <div class="form-help">AI 會先產生草稿並填入表單；確認後才會儲存。</div>
+            </div>
+            <div class="ai-result-note" id="aiResultNote"></div>
+            <div class="form-message" id="aiMessage"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="aiCancelBtn">取消</button>
+            <button type="submit" class="btn btn-primary" id="aiSubmitBtn">填入表單確認</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- 加油紀錄 Modal -->
   <div id="fuelLogModal" class="modal-overlay" style="display:none;">
     <div class="modal">
@@ -1799,6 +1842,7 @@ let lastSyncAt = null;
 let photoMode = "fuel";
 let photoParsed = null;
 let photoPreviewUrl = "";
+let aiBackendReady = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -3329,6 +3373,29 @@ function clearPhotoMessage() {
   el.textContent = "";
 }
 
+function showAiMessage(type, text) {
+  const el = document.getElementById("aiMessage");
+  el.className = "form-message form-message-" + type;
+  el.textContent = text;
+}
+
+function clearAiMessage() {
+  const el = document.getElementById("aiMessage");
+  el.className = "form-message";
+  el.textContent = "";
+}
+
+function renderAiResultNote(text) {
+  const el = document.getElementById("aiResultNote");
+  if (!text) {
+    el.style.display = "none";
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = text;
+  el.style.display = "block";
+}
+
 function setFuelPriceStatus(text) {
   const el = document.getElementById("fuelLogPriceStatus");
   if (el) el.textContent = text || "";
@@ -3736,6 +3803,218 @@ function applyPhotoParsedToForm() {
   showFormMessage("info", "已從照片填入紀錄；請確認日期、里程、費用與內容後儲存。");
 }
 
+function openAiModal() {
+  document.getElementById("aiRecordForm").reset();
+  renderAiResultNote("");
+  clearAiMessage();
+  document.getElementById("aiSubmitBtn").disabled = false;
+  document.getElementById("aiModal").style.display = "flex";
+  setTimeout(() => document.getElementById("aiRecordText").focus(), 50);
+}
+
+function closeAiModal() {
+  document.getElementById("aiModal").style.display = "none";
+  renderAiResultNote("");
+  clearAiMessage();
+}
+
+function getAiSafeRecords() {
+  return records.map(r => ({
+    date: r.date || "",
+    mileage: Number.isFinite(Number(r.mileage)) ? Number(r.mileage) : null,
+    category: r.category || "",
+    detail: r.detail || "",
+    cost: asNumber(r.cost),
+    note: r.note || ""
+  }));
+}
+
+function buildAiRequestPayload(text) {
+  return {
+    action: "aiRecordAssistant",
+    text,
+    records: getAiSafeRecords(),
+    today: getTodayString(),
+    vehicle: {
+      name: VEHICLE_PROFILE.name,
+      fuel: VEHICLE_PROFILE.fuel,
+      defaultFuelType: DEFAULT_FUEL_TYPE,
+      defaultDiscount: DEFAULT_FUEL_DISCOUNT,
+      currentMileage: getCurrentMileage()
+    }
+  };
+}
+
+async function ensureAiBackendReady() {
+  if (aiBackendReady === true) return true;
+  const res = await fetchWithTimeout(API_URL + "?action=aiStatus", { cache: "no-store" }, 6500);
+  if (!res.ok) throw new Error("AI backend status HTTP " + res.status);
+  const data = await res.json();
+  aiBackendReady = !!data?.aiRecordAssistant;
+  if (!aiBackendReady) {
+    throw new Error("AI backend is not deployed");
+  }
+  if (!data.hasOpenAiKey) {
+    throw new Error("OPENAI_API_KEY is not configured in Apps Script");
+  }
+  return true;
+}
+
+async function requestAiRecordDraft(text) {
+  await ensureAiBackendReady();
+  const res = await fetchWithTimeout(API_URL + "?action=aiRecordAssistant", {
+    method: "POST",
+    body: JSON.stringify(buildAiRequestPayload(text)),
+    redirect: "follow"
+  }, 24000);
+  if (!res.ok) throw new Error("AI backend HTTP " + res.status);
+  const data = await res.json();
+  if (!data?.ok) {
+    throw new Error(data?.message || "AI 解析失敗");
+  }
+  return data;
+}
+
+function getAiDraftNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function getAiDraftInteger(value) {
+  const n = getAiDraftNumber(value);
+  return n === null ? null : Math.round(n);
+}
+
+function normalizeAiDate(value) {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : getTodayString();
+}
+
+function normalizeAiCategory(value, sourceText) {
+  const allowed = ["保養", "維修", "更換", "保險", "檢驗/稅費", "清潔美容", "改裝升級", "其他"];
+  return allowed.includes(value) ? value : inferServiceCategory(sourceText);
+}
+
+function summarizeAiDraft(result) {
+  const draft = result.draft || {};
+  const missing = Array.isArray(draft.missingFields) ? draft.missingFields.filter(Boolean) : [];
+  const confidence = Number(draft.confidence);
+  const confidenceText = Number.isFinite(confidence) && confidence > 0
+    ? `信心 ${(Math.min(confidence, 1) * 100).toFixed(0)}%`
+    : "請確認欄位";
+  const missingText = missing.length ? `；需確認：${missing.join("、")}` : "";
+  return `<strong>${escapeHtml(result.message || "已產生紀錄草稿")}</strong><br>${escapeHtml(confidenceText + missingText)}`;
+}
+
+function getAiReviewSuffix(result) {
+  const draft = result.draft || {};
+  const missing = Array.isArray(draft.missingFields) ? draft.missingFields.filter(Boolean) : [];
+  const confidence = Number(draft.confidence);
+  const notes = [];
+  if (Number.isFinite(confidence) && confidence > 0 && confidence < 0.65) {
+    notes.push("AI 信心偏低");
+  }
+  if (missing.length) {
+    notes.push("需確認：" + missing.join("、"));
+  }
+  return notes.length ? "（" + notes.join("；") + "）" : "";
+}
+
+async function applyAiFuelDraft(result, sourceText) {
+  const draft = result.draft || {};
+  const cost = getAiDraftInteger(draft.cost);
+  const fuelType = ["92", "95", "98"].includes(String(draft.fuelType)) ? String(draft.fuelType) : DEFAULT_FUEL_TYPE;
+  const discount = getAiDraftNumber(draft.discount) ?? DEFAULT_FUEL_DISCOUNT;
+  const mileage = getAiDraftInteger(draft.mileage) ?? getCurrentMileage();
+
+  closeAiModal();
+  openFuelLogModal({ skipPriceLoad: true });
+  document.getElementById("fuelLogDateInput").value = normalizeAiDate(draft.date);
+  document.getElementById("fuelLogMileageInput").value = mileage || "";
+  document.getElementById("fuelLogTypeInput").value = fuelType;
+  document.getElementById("fuelLogFullTankInput").value = draft.fullTank === false ? "no" : "yes";
+  document.getElementById("fuelLogDiscountInput").value = discount.toFixed(1);
+  document.getElementById("fuelLogCostInput").value = cost || "";
+  document.getElementById("fuelLogNoteInput").value = String(draft.note || "").trim() || sourceText;
+
+  const unitPrice = getAiDraftNumber(draft.unitPrice);
+  if (unitPrice) {
+    document.getElementById("fuelLogUnitPriceInput").value = unitPrice.toFixed(1);
+  } else {
+    await loadFuelPriceForSelectedType({ force: true });
+  }
+
+  const finalUnitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
+  const netPrice = Number.isFinite(finalUnitPrice) ? Math.max(finalUnitPrice - discount, 0) : 0;
+  const liters = getAiDraftNumber(draft.liters) ?? (cost && netPrice > 0 ? cost / netPrice : null);
+  if (liters) {
+    document.getElementById("fuelLogLitersInput").value = liters.toFixed(2);
+  }
+  updateFuelLogCostFromDiscount();
+  if (cost) document.getElementById("fuelLogCostInput").value = cost;
+
+  const message = liters
+    ? "AI 已填入加油草稿；請確認里程、公升、油價與金額後儲存。"
+    : "AI 已填入加油草稿；目前缺公升數，請確認油價或手動輸入公升後儲存。";
+  const reviewSuffix = getAiReviewSuffix(result);
+  showFuelLogMessage(liters ? "info" : "error", message + reviewSuffix);
+}
+
+function applyAiServiceDraft(result, sourceText) {
+  const draft = result.draft || {};
+  closeAiModal();
+  openAddModal();
+  document.getElementById("formDate").value = normalizeAiDate(draft.date);
+  document.getElementById("formMileage").value = getAiDraftInteger(draft.mileage) || "";
+  document.getElementById("formCategory").value = normalizeAiCategory(draft.category, sourceText);
+  document.getElementById("formCost").value = getAiDraftInteger(draft.cost) || "";
+  document.getElementById("formTemplate").value = "";
+  document.getElementById("formDetail").value = String(draft.detail || "").trim() || sourceText;
+  document.getElementById("formNote").value = String(draft.note || "").trim();
+  updateMileageHint(-1);
+  showFormMessage("info", "AI 已填入紀錄草稿；請確認日期、里程、類別、費用與內容後儲存。" + getAiReviewSuffix(result));
+}
+
+async function applyAiDraftToForm(result, sourceText) {
+  renderAiResultNote(summarizeAiDraft(result));
+  if (result.mode === "fuel") {
+    await applyAiFuelDraft(result, sourceText);
+  } else {
+    applyAiServiceDraft(result, sourceText);
+  }
+}
+
+async function handleAiRecordSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById("aiRecordText");
+  const text = input.value.trim();
+  if (!text) {
+    showAiMessage("error", "請先輸入要新增的紀錄內容。");
+    input.focus();
+    return;
+  }
+
+  const btn = document.getElementById("aiSubmitBtn");
+  btn.disabled = true;
+  renderAiResultNote("");
+  showAiMessage("info", "正在請 AI 解析紀錄...");
+  try {
+    const result = await requestAiRecordDraft(text);
+    renderAiResultNote(summarizeAiDraft(result));
+    showAiMessage("info", "已產生草稿，正在填入表單。");
+    await applyAiDraftToForm(result, text);
+  } catch (err) {
+    console.error("AI 紀錄助手失敗", err);
+    const message = err.message === "AI backend is not deployed"
+      ? "AI 代理尚未部署到 Apps Script。請先更新 Apps Script 後再使用。"
+      : err.message === "OPENAI_API_KEY is not configured in Apps Script"
+        ? "Apps Script 尚未設定 OPENAI_API_KEY。請先在 Script Properties 設定後再使用。"
+        : "AI 解析失敗，請稍後再試，或先使用一般新增表單。";
+    showAiMessage("error", message);
+    btn.disabled = false;
+  }
+}
+
 function handleMileageSubmit(e) {
   e.preventDefault();
   const input = document.getElementById("currentMileageInput");
@@ -4051,6 +4330,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 新增按鈕
   document.getElementById("btnAddRecord").addEventListener("click", openAddModal);
   document.getElementById("btnAddFuelLog").addEventListener("click", openFuelLogModal);
+  document.getElementById("btnAiRecord").addEventListener("click", openAiModal);
   document.getElementById("btnPhotoRead").addEventListener("click", openPhotoModal);
   document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
   document.getElementById("btnUpdateMileageHeader").addEventListener("click", openMileageModal);
@@ -4099,6 +4379,19 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("photoInput").addEventListener("change", handlePhotoInputChange);
   document.getElementById("photoApplyBtn").addEventListener("click", applyPhotoParsedToForm);
+
+  // AI 紀錄助手
+  document.getElementById("aiModalClose").addEventListener("click", closeAiModal);
+  document.getElementById("aiCancelBtn").addEventListener("click", closeAiModal);
+  document.getElementById("aiModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("aiModal")) closeAiModal();
+  });
+  document.getElementById("aiRecordForm").addEventListener("submit", handleAiRecordSubmit);
+  document.getElementById("aiRecordText").addEventListener("input", () => {
+    clearAiMessage();
+    renderAiResultNote("");
+    document.getElementById("aiSubmitBtn").disabled = false;
+  });
 
   // 加油紀錄
   document.getElementById("fuelLogModalClose").addEventListener("click", closeFuelLogModal);

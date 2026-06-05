@@ -28,6 +28,25 @@ git push
 
 GitHub Pages usually updates within 1-2 minutes after `git push`.
 
+## AI Record Assistant
+
+The website includes an AI 新增 button that calls the existing Apps Script API
+as an OpenAI proxy. The OpenAI API key must stay in Apps Script Script
+Properties, never in `index.html` or browser storage.
+
+To enable it:
+
+1. Copy `apps-script/ai-record-assistant.gs` into the deployed Apps Script project.
+2. Add the route checks shown at the top of that file to the existing `doGet(e)`
+   and `doPost(e)` handlers before the existing sync logic.
+3. In Apps Script, set Script Property `OPENAI_API_KEY`.
+4. Optional: set Script Property `OPENAI_MODEL`; default is `gpt-5.4-mini`.
+5. Deploy the Apps Script web app again.
+
+The frontend first calls `?action=aiStatus`. If the AI proxy is not deployed or
+the key is missing, the AI dialog shows an error and does not send the record
+draft request, so the old array-sync POST flow is protected.
+
 ## Notes
 
 - This project must stay separate from the 2016 Superb site because it uses a separate Apps Script API and Google Sheet.
