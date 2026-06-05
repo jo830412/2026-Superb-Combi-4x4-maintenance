@@ -105,7 +105,18 @@ function handleAiRecordAssistant_(payload) {
   const status = response.getResponseCode();
   const raw = response.getContentText();
   if (status < 200 || status >= 300) {
-    throw new Error("OpenAI API error HTTP " + status);
+    let message = "OpenAI API error HTTP " + status;
+    try {
+      const errorJson = JSON.parse(raw);
+      const error = errorJson && errorJson.error;
+      if (error && error.message) {
+        message = error.message;
+        if (error.code) message += " (" + error.code + ")";
+      }
+    } catch (err) {
+      // Keep the generic HTTP status when OpenAI does not return JSON.
+    }
+    throw new Error(message);
   }
 
   const apiJson = JSON.parse(raw);
@@ -269,6 +280,24 @@ function getOpenAiApiKey_() {
 
 function getAiRecordModel_() {
   return PropertiesService.getScriptProperties().getProperty("OPENAI_MODEL") || AI_RECORD_DEFAULT_MODEL;
+}
+
+function authorizeOpenAiFetch() {
+  const apiKey = getOpenAiApiKey_();
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not configured in Apps Script properties");
+  }
+  const response = UrlFetchApp.fetch("https://api.openai.com/v1/models", {
+    method: "get",
+    headers: {
+      Authorization: "Bearer " + apiKey
+    },
+    muteHttpExceptions: true
+  });
+  return {
+    ok: response.getResponseCode() >= 200 && response.getResponseCode() < 300,
+    status: response.getResponseCode()
+  };
 }
 
 function jsonOutput_(value) {

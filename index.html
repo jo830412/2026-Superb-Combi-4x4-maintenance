@@ -4009,7 +4009,9 @@ async function handleAiRecordSubmit(e) {
       ? "AI 代理尚未部署到 Apps Script。請先更新 Apps Script 後再使用。"
       : err.message === "OPENAI_API_KEY is not configured in Apps Script"
         ? "Apps Script 尚未設定 OPENAI_API_KEY。請先在 Script Properties 設定後再使用。"
-        : "AI 解析失敗，請稍後再試，或先使用一般新增表單。";
+        : /quota|insufficient_quota/i.test(err.message || "")
+          ? "OpenAI API 額度不足或 billing 尚未啟用；請到 OpenAI Platform 檢查方案與付款設定。"
+          : "AI 解析失敗：" + (err.message || "請稍後再試，或先使用一般新增表單。");
     showAiMessage("error", message);
     btn.disabled = false;
   }
