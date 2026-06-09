@@ -1609,8 +1609,13 @@ body {
         </div>
         <div class="form-grid">
           <div class="form-group form-group-full">
-            <label class="form-label">拍照或選擇照片</label>
-            <input type="file" id="photoInput" class="form-input" accept="image/*"/>
+            <label class="form-label">照片來源</label>
+            <div class="input-action-row">
+              <button type="button" class="btn btn-ghost" id="photoCameraBtn">📷 拍照</button>
+              <button type="button" class="btn btn-ghost" id="photoLibraryBtn">🖼 選擇照片</button>
+            </div>
+            <input type="file" id="photoCameraInput" accept="image/*" capture="environment" style="display:none;"/>
+            <input type="file" id="photoLibraryInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" style="display:none;"/>
             <div class="form-help">會在你的瀏覽器中辨識照片文字；辨識完成後先填入表單，確認後再儲存。</div>
           </div>
           <div class="form-group form-group-full">
@@ -3677,7 +3682,8 @@ function openPhotoModal() {
   photoParsed = null;
   if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
   photoPreviewUrl = "";
-  document.getElementById("photoInput").value = "";
+  document.getElementById("photoCameraInput").value = "";
+  document.getElementById("photoLibraryInput").value = "";
   document.getElementById("photoRawText").value = "";
   document.getElementById("photoPreview").style.display = "none";
   document.getElementById("photoPreview").removeAttribute("src");
@@ -3738,6 +3744,13 @@ async function recognizePhotoFile(file) {
     console.warn("繁中 OCR 失敗，改用英文數字辨識", e);
     return await Tesseract.recognize(file, "eng", { logger });
   }
+}
+
+function openPhotoSourceInput(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.value = "";
+  input.click();
 }
 
 async function handlePhotoInputChange(e) {
@@ -4550,7 +4563,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".photo-mode-btn").forEach(btn => {
     btn.addEventListener("click", () => setPhotoMode(btn.dataset.photoMode));
   });
-  document.getElementById("photoInput").addEventListener("change", handlePhotoInputChange);
+  document.getElementById("photoCameraBtn").addEventListener("click", () => openPhotoSourceInput("photoCameraInput"));
+  document.getElementById("photoLibraryBtn").addEventListener("click", () => openPhotoSourceInput("photoLibraryInput"));
+  document.getElementById("photoCameraInput").addEventListener("change", handlePhotoInputChange);
+  document.getElementById("photoLibraryInput").addEventListener("change", handlePhotoInputChange);
   document.getElementById("photoApplyBtn").addEventListener("click", applyPhotoParsedToForm);
 
   // AI 紀錄助手
