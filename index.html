@@ -1800,6 +1800,7 @@ const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
+const VEHICLE_DELIVERY_MILEAGE_KM = 0;
 const WARRANTY_MONTHS = 48;
 const FIRST_INSPECTION_INTERVAL_MONTHS = 60;
 const MAINTENANCE_INTERVAL_KM = 10000;
@@ -2152,6 +2153,21 @@ function getMaxMileage(excludeIndex = -1) {
 function getCurrentMileage() {
   return getMaxMileage();
 }
+function getVehicleBaselineDate() {
+  return parseDate(VEHICLE_DELIVERY_DATE);
+}
+function getVehicleBaselineMileage() {
+  return VEHICLE_DELIVERY_MILEAGE_KM;
+}
+function getEffectiveCurrentMileage() {
+  const currentMileage = getCurrentMileage();
+  return currentMileage > 0 ? currentMileage : getVehicleBaselineMileage();
+}
+function getBaselineMetaPrefix() {
+  const baselineDate = getVehicleBaselineDate();
+  const dateText = baselineDate ? formatDateYMD(baselineDate) : "交車日";
+  return `${dateText} 交車 ${getVehicleBaselineMileage().toLocaleString("zh-TW")} km 起算`;
+}
 function isMileageUpdateRecord(r) {
   return r && r.category === "其他" && r.detail === "目前里程更新";
 }
@@ -2391,9 +2407,9 @@ function updateStats() {
     ? formatCompactCost(total)
     : "0";
 
-  const maxMile = getCurrentMileage();
+  const maxMile = getEffectiveCurrentMileage();
   document.getElementById("statCurrentMileage").textContent =
-    maxMile > 0 ? maxMile.toLocaleString("zh-TW") : "—";
+    maxMile.toLocaleString("zh-TW");
 
   const lastMaint = sortedServiceRecords.find(r => r.category === "保養");
   document.getElementById("statLastMaintenance").textContent =
@@ -2467,7 +2483,7 @@ function getLatestMatchingRecord(terms) {
 }
 
 function buildTrackerState(rule) {
-  const currentMileage = getCurrentMileage();
+  const currentMileage = getEffectiveCurrentMileage();
   const latest = getLatestMatchingRecord(rule.terms);
   if (!latest && rule.firstDueMonths) {
     const startDate = parseDate(rule.firstDueFrom);
@@ -2493,6 +2509,42 @@ function buildTrackerState(rule) {
     };
   }
   if (!latest) {
+    const baselineDate = getVehicleBaselineDate();
+    const baselineMileage = getVehicleBaselineMileage();
+    if (rule.intervalKm) {
+      const usedKm = Math.max(currentMileage - baselineMileage, 0);
+      const meta = `${getBaselineMetaPrefix()} / 已跑 ${usedKm.toLocaleString("zh-TW")} km`;
+      if (usedKm >= rule.dueKm) {
+        return { status: "due", value: "該處理", meta };
+      }
+      if (usedKm >= rule.intervalKm) {
+        return { status: "soon", value: "可安排", meta };
+      }
+      return {
+        status: "ok",
+        value: "剩 " + (rule.intervalKm - usedKm).toLocaleString("zh-TW") + " km",
+        meta,
+        next: "尚無更換紀錄，先以新車交車基準推估。"
+      };
+    }
+    if (rule.intervalMonths && baselineDate) {
+      const usedMonths = diffMonths(baselineDate);
+      const nextDate = addMonths(baselineDate, rule.intervalMonths);
+      const nextLabel = formatDateYMD(nextDate);
+      const next = `交車 ${formatDateYM(baselineDate)} / 已過 ${usedMonths} 個月`;
+      if (usedMonths >= rule.dueMonths) {
+        return { status: "due", value: "該處理", meta: `下一次約 ${nextLabel}`, next };
+      }
+      if (usedMonths >= rule.intervalMonths) {
+        return { status: "soon", value: "可安排", meta: `下一次約 ${nextLabel}`, next };
+      }
+      return {
+        status: "ok",
+        value: "剩 " + (rule.intervalMonths - usedMonths) + " 個月",
+        meta: `下一次約 ${nextLabel}`,
+        next: next + " / 尚無更換紀錄，先以新車交車基準推估。"
+      };
+    }
     return {
       status: "missing",
       value: "未記錄",
@@ -2571,14 +2623,44 @@ function getLastMaintenanceRecord() {
 }
 
 function getMaintenanceActionState() {
-  const currentMileage = getCurrentMileage();
+  const currentMileage = getEffectiveCurrentMileage();
   const latest = getLastMaintenanceRecord();
   if (!latest) {
+    const baselineDate = getVehicleBaselineDate();
+    const baselineMileage = getVehicleBaselineMileage();
+    const usedKm = Math.max(currentMileage - baselineMileage, 0);
+    const usedMonths = baselineDate ? diffMonths(baselineDate) : null;
+    const nextMileage = baselineMileage + MAINTENANCE_INTERVAL_KM;
+    const nextDate = baselineDate ? addMonths(baselineDate, MAINTENANCE_INTERVAL_MONTHS) : null;
+    const metaParts = [
+      "新車交車基準",
+      "下次約 " + nextMileage.toLocaleString("zh-TW") + " km"
+    ];
+    if (nextDate) metaParts.push("或 " + formatDateYMD(nextDate));
+    metaParts.push("已跑 " + usedKm.toLocaleString("zh-TW") + " km");
+    if (usedMonths != null) metaParts.push("已過 " + usedMonths + " 個月");
+
+    if (usedKm >= MAINTENANCE_DUE_KM || (usedMonths != null && usedMonths >= MAINTENANCE_DUE_MONTHS)) {
+      return {
+        status: "due",
+        name: "安排首保/定期保養",
+        statusText: "該保養",
+        meta: metaParts.join(" / ")
+      };
+    }
+    if (usedKm >= MAINTENANCE_INTERVAL_KM || (usedMonths != null && usedMonths >= MAINTENANCE_INTERVAL_MONTHS)) {
+      return {
+        status: "soon",
+        name: "安排首保/定期保養",
+        statusText: "可安排",
+        meta: metaParts.join(" / ")
+      };
+    }
     return {
-      status: "missing",
-      name: "建立保養基準",
-      statusText: "缺基準",
-      meta: "新增交車檢查、首保或最近一次原廠保養，才能準確推估下次保養。"
+      status: "ok",
+      name: "首保/定期保養",
+      statusText: "正常",
+      meta: metaParts.join(" / ")
     };
   }
 
@@ -2722,8 +2804,8 @@ function getWarrantyState(today = new Date()) {
 
 function getDataHealthText() {
   const checks = [
-    getCurrentMileage() > 0,
-    !!getLastMaintenanceRecord(),
+    getCurrentMileage() > 0 || Number.isFinite(getVehicleBaselineMileage()),
+    !!getLastMaintenanceRecord() || !!getVehicleBaselineDate(),
     getFuelLogs().length > 0,
     !!getLatestMatchingRecord(["保險", "強制險", "任意險"]),
     !!getLatestMatchingRecord(["牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費"])
