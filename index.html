@@ -53,6 +53,7 @@ body {
   background: var(--bg-base);
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   line-height: 1.5;
   padding-bottom: 60px;
   overflow-x: hidden;
@@ -160,6 +161,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 36px;
   padding: 8px 18px;
   border-radius: var(--radius-sm);
   font-size: 0.88rem;
@@ -169,6 +171,15 @@ body {
   transition: var(--transition);
   font-family: inherit;
   white-space: nowrap;
+  touch-action: manipulation;
+}
+.btn:focus-visible,
+.sync-status:focus-visible,
+.pill:focus-visible,
+.modal-close:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(88,166,255,0.18);
 }
 .btn-primary {
   background: var(--blue);
@@ -545,6 +556,9 @@ body {
 .fuel-log-table-wrap {
   overflow-x: auto;
 }
+.fuel-log-table td::before {
+  display: none;
+}
 .fuel-log-table {
   width: 100%;
   border-collapse: collapse;
@@ -843,9 +857,15 @@ body {
   color: var(--text-secondary);
   font-size: 1.1rem;
   cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
 }
 .modal-close:hover { background: var(--bg-input); color: var(--text-primary); }
 .modal-body { padding: 20px 24px; }
@@ -1061,13 +1081,18 @@ body {
   .record-date, .record-mileage, .record-cost { text-align: left; }
   .record-actions { justify-content: flex-start; }
 }
-@media (max-width: 600px) {
-  body { padding-bottom: 36px; }
+@media (max-width: 768px) {
+  :root { font-size: 16px; }
+  body {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
+    overscroll-behavior-x: none;
+  }
   .header-inner {
-    padding: 14px 16px 16px;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 10px;
+    overflow: hidden;
   }
   .header-logo {
     width: 100%;
@@ -1075,7 +1100,7 @@ body {
     gap: 10px;
   }
   .logo-icon {
-    font-size: 1.7rem;
+    font-size: 1.5rem;
   }
   .logo-title {
     font-size: 1rem;
@@ -1086,22 +1111,37 @@ body {
   }
   .header-actions {
     width: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 100%;
+    min-width: 0;
+    margin-right: 0;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    align-items: center;
     gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
     flex-shrink: 1;
   }
-  .header-actions .btn {
-    width: 100%;
+  .header-actions::-webkit-scrollbar { display: none; }
+  .header-actions .btn,
+  .sync-status {
+    flex: 0 0 auto;
+    min-height: 44px;
+    width: auto;
     justify-content: center;
-    padding: 8px 10px;
-    font-size: 0.82rem;
+    padding: 0 14px;
+    font-size: 0.88rem;
+  }
+  .header-actions .btn-primary {
+    min-width: 124px;
   }
   .sync-status {
-    grid-column: 1 / -1;
-    width: 100%;
-    justify-content: center;
-    order: -1;
+    order: 20;
+    max-width: 184px;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1138,11 +1178,51 @@ body {
     align-items: center;
   }
   .stat-action {
-    padding: 3px 7px;
-    font-size: 0.68rem;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 8px;
+    font-size: 0.72rem;
     flex-shrink: 0;
   }
-  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .search-wrap {
+    min-width: 0;
+    width: 100%;
+  }
+  .search-input,
+  .year-select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .filter-pills {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-right: 0;
+    padding: 0 0 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filter-pills::-webkit-scrollbar { display: none; }
+  .pill {
+    flex: 0 0 auto;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 14px;
+  }
+  .year-select {
+    width: 100%;
+  }
   .owner-section { padding: 0 16px; }
   .owner-panel {
     grid-template-columns: 1fr;
@@ -1174,26 +1254,99 @@ body {
   .ownership-grid {
     grid-template-columns: 1fr;
   }
+  .fuel-log-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .fuel-log-summary {
+    text-align: left;
+    line-height: 1.45;
+  }
+  .fuel-log-table-wrap {
+    overflow-x: visible;
+  }
+  .fuel-log-table,
+  .fuel-log-table tbody,
+  .fuel-log-table tr,
+  .fuel-log-table td {
+    display: block;
+    width: 100%;
+  }
+  .fuel-log-table {
+    min-width: 0;
+    border-collapse: separate;
+  }
+  .fuel-log-table thead {
+    display: none;
+  }
+  .fuel-log-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+  .fuel-log-table tr {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+  }
+  .fuel-log-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    text-align: right;
+    white-space: normal;
+    font-size: 0.84rem;
+  }
+  .fuel-log-table td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  .fuel-log-table td:first-child {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+  .fuel-log-table td:last-child {
+    border-bottom: none;
+  }
   .record-item { grid-template-columns: 1fr; }
   .modal-overlay {
-    align-items: flex-start;
-    padding: 14px;
-    overflow-y: auto;
+    align-items: stretch;
+    padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
+    overflow: hidden;
   }
   .modal,
   .modal-sm {
     max-width: none;
-    max-height: calc(100vh - 28px);
+    max-height: calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .modal-header {
-    padding: 16px 18px 14px;
+    flex: 0 0 auto;
+    padding: 12px 16px;
   }
   .modal-header h2 {
     font-size: 1rem;
   }
+  .modal-close {
+    min-width: 44px;
+    min-height: 44px;
+    margin: -8px -8px -8px 0;
+  }
   .modal-body {
-    padding: 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
   }
   .form-grid {
     grid-template-columns: 1fr;
@@ -1208,9 +1361,9 @@ body {
     margin-bottom: 6px;
   }
   .form-input {
-    min-height: 42px;
-    padding: 9px 12px;
-    font-size: 0.88rem;
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 16px;
   }
   .form-textarea {
     min-height: 96px;
@@ -1225,18 +1378,41 @@ body {
   .input-action-row .btn {
     width: 100%;
     justify-content: center;
+    min-height: 44px;
+  }
+  .photo-mode-btn {
+    min-height: 44px;
+  }
+  .photo-result-grid {
+    grid-template-columns: 1fr;
   }
   .modal-footer {
+    position: sticky;
+    bottom: -16px;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-    margin-top: 18px;
-    padding-top: 14px;
+    margin: 18px -16px -16px;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background: var(--bg-card);
+    box-shadow: 0 -8px 16px rgba(0,0,0,0.18);
   }
   .modal-footer .btn {
     width: 100%;
     justify-content: center;
+    min-height: 44px;
     padding: 10px 12px;
+    white-space: normal;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
   </style>
@@ -1246,14 +1422,14 @@ body {
   <header class="header">
     <div class="header-inner">
       <div class="header-logo">
-        <span class="logo-icon">🚗</span>
+        <span class="logo-icon" aria-hidden="true">🚗</span>
         <div>
           <h1 class="logo-title">2026 Superb Combi 4x4 保養維修紀錄</h1>
           <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="sync-status sync-syncing" id="syncStatus" type="button" title="點擊重試同步">
+        <button class="sync-status sync-syncing" id="syncStatus" type="button" title="點擊重試同步" aria-live="polite">
           同步中
         </button>
         <button class="btn btn-primary" id="btnAddRecord">
@@ -1464,8 +1640,8 @@ body {
   <section class="filter-section">
     <div class="filter-bar">
       <div class="search-wrap">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="searchInput" class="search-input" placeholder="搜尋紀錄內容..."/>
+        <span class="search-icon" aria-hidden="true">🔍</span>
+        <input type="text" id="searchInput" class="search-input" placeholder="搜尋紀錄內容..." aria-label="搜尋紀錄內容"/>
       </div>
       <div class="filter-pills" id="filterPills">
         <button class="pill pill-active" data-cat="全部">全部</button>
@@ -1479,7 +1655,7 @@ body {
         <button class="pill" data-cat="改裝升級">改裝升級</button>
         <button class="pill" data-cat="其他">其他</button>
       </div>
-      <select id="yearFilter" class="year-select">
+      <select id="yearFilter" class="year-select" aria-label="年份篩選">
         <option value="">所有年份</option>
       </select>
     </div>
@@ -1500,23 +1676,23 @@ body {
     <div class="modal">
       <div class="modal-header">
         <h2 id="modalTitle">新增保養/維修紀錄</h2>
-        <button class="modal-close" id="modalClose">✕</button>
+        <button class="modal-close" id="modalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
         <form id="recordForm">
           <input type="hidden" id="editIndex" value="-1"/>
           <div class="form-grid">
             <div class="form-group">
-              <label class="form-label">日期 <span class="required">*</span></label>
+              <label class="form-label" for="formDate">日期 <span class="required">*</span></label>
               <input type="date" id="formDate" class="form-input" required/>
             </div>
             <div class="form-group">
-              <label class="form-label">里程 (km)</label>
+              <label class="form-label" for="formMileage">里程 (km)</label>
               <input type="number" id="formMileage" class="form-input" placeholder="例：120000" min="0" step="1"/>
               <div class="form-help" id="mileageHint"></div>
             </div>
             <div class="form-group">
-              <label class="form-label">類別 <span class="required">*</span></label>
+              <label class="form-label" for="formCategory">類別 <span class="required">*</span></label>
               <select id="formCategory" class="form-input" required>
                 <option value="">請選擇</option>
                 <option value="保養">保養</option>
@@ -1530,11 +1706,11 @@ body {
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">費用 (NT$)</label>
+              <label class="form-label" for="formCost">費用 (NT$)</label>
               <input type="number" id="formCost" class="form-input" placeholder="0" min="0"/>
             </div>
             <div class="form-group form-group-full">
-              <label class="form-label">常用項目</label>
+              <label class="form-label" for="formTemplate">常用項目</label>
               <select id="formTemplate" class="form-input">
                 <option value="">不套用模板</option>
                 <option value="oil">機油保養</option>
@@ -1551,11 +1727,11 @@ body {
               </select>
             </div>
             <div class="form-group form-group-full">
-              <label class="form-label">詳細內容 <span class="required">*</span></label>
+              <label class="form-label" for="formDetail">詳細內容 <span class="required">*</span></label>
               <textarea id="formDetail" class="form-input form-textarea" rows="3" placeholder="例：機油(5W-30)、機油芯..." required></textarea>
             </div>
             <div class="form-group form-group-full">
-              <label class="form-label">備註</label>
+              <label class="form-label" for="formNote">備註</label>
               <input type="text" id="formNote" class="form-input" placeholder="任何補充說明..."/>
             </div>
             <div class="form-message" id="formMessage"></div>
@@ -1574,13 +1750,13 @@ body {
     <div class="modal modal-sm">
       <div class="modal-header">
         <h2>更新目前里程</h2>
-        <button class="modal-close" id="mileageModalClose">✕</button>
+        <button class="modal-close" id="mileageModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
         <form id="mileageForm">
           <div class="form-grid">
             <div class="form-group form-group-full">
-              <label class="form-label">目前里程 (km) <span class="required">*</span></label>
+              <label class="form-label" for="currentMileageInput">目前里程 (km) <span class="required">*</span></label>
               <input type="number" id="currentMileageInput" class="form-input" min="0" step="1" placeholder="例：123456" required/>
               <div class="form-help" id="currentMileageHint"></div>
             </div>
@@ -1600,7 +1776,7 @@ body {
     <div class="modal">
       <div class="modal-header">
         <h2>讀取照片新增紀錄</h2>
-        <button class="modal-close" id="photoModalClose">✕</button>
+        <button class="modal-close" id="photoModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
         <div class="photo-mode">
@@ -1626,7 +1802,7 @@ body {
             <div class="photo-result-grid" id="photoResultGrid"></div>
           </div>
           <div class="form-group form-group-full">
-            <label class="form-label">辨識文字</label>
+            <label class="form-label" for="photoRawText">辨識文字</label>
             <textarea id="photoRawText" class="form-input form-textarea photo-raw" rows="4" placeholder="選擇照片後會顯示辨識到的文字" readonly></textarea>
           </div>
           <div class="form-message" id="photoMessage"></div>
@@ -1644,13 +1820,13 @@ body {
     <div class="modal">
       <div class="modal-header">
         <h2>AI 紀錄助手</h2>
-        <button class="modal-close" id="aiModalClose">✕</button>
+        <button class="modal-close" id="aiModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
         <form id="aiRecordForm">
           <div class="form-grid">
             <div class="form-group form-group-full">
-              <label class="form-label">輸入紀錄內容</label>
+              <label class="form-label" for="aiRecordText">輸入紀錄內容</label>
               <textarea id="aiRecordText" class="form-input form-textarea" rows="4" placeholder="例：全國加油站 98加了1000&#10;例：車子美容 3000&#10;例：今天換輪胎 42000km 18000" required></textarea>
               <div class="form-help">AI 會先產生草稿並填入表單；確認後才會儲存。</div>
             </div>
@@ -1671,25 +1847,25 @@ body {
     <div class="modal">
       <div class="modal-header">
         <h2>新增加油紀錄</h2>
-        <button class="modal-close" id="fuelLogModalClose">✕</button>
+        <button class="modal-close" id="fuelLogModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
         <form id="fuelLogForm">
           <div class="form-grid">
             <div class="form-group">
-              <label class="form-label">日期 <span class="required">*</span></label>
+              <label class="form-label" for="fuelLogDateInput">日期 <span class="required">*</span></label>
               <input type="date" id="fuelLogDateInput" class="form-input" required/>
             </div>
             <div class="form-group">
-              <label class="form-label">里程 (km) <span class="required">*</span></label>
+              <label class="form-label" for="fuelLogMileageInput">里程 (km) <span class="required">*</span></label>
               <input type="number" id="fuelLogMileageInput" class="form-input" min="0" step="1" required/>
             </div>
             <div class="form-group">
-              <label class="form-label">加油量 (L) <span class="required">*</span></label>
+              <label class="form-label" for="fuelLogLitersInput">加油量 (L) <span class="required">*</span></label>
               <input type="text" id="fuelLogLitersInput" class="form-input" inputmode="decimal" placeholder="例：45.5" required/>
             </div>
             <div class="form-group">
-              <label class="form-label">牌告油價 (NT$/L)</label>
+              <label class="form-label" for="fuelLogUnitPriceInput">牌告油價 (NT$/L)</label>
               <div class="input-action-row">
                 <input type="number" id="fuelLogUnitPriceInput" class="form-input" min="0" step="0.1" placeholder="自動抓取或手動輸入"/>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnFetchFuelPrice">抓油價</button>
@@ -1697,16 +1873,16 @@ body {
               <div class="form-help" id="fuelLogPriceStatus">預設 98，會嘗試抓取全國加油站今日牌價。</div>
             </div>
             <div class="form-group">
-              <label class="form-label">優惠折抵 (NT$/L)</label>
+              <label class="form-label" for="fuelLogDiscountInput">優惠折抵 (NT$/L)</label>
               <input type="number" id="fuelLogDiscountInput" class="form-input" min="0" step="0.1" value="1.8"/>
             </div>
             <div class="form-group">
-              <label class="form-label">油費 (NT$)</label>
+              <label class="form-label" for="fuelLogCostInput">油費 (NT$)</label>
               <input type="number" id="fuelLogCostInput" class="form-input" min="0" step="1" placeholder="0"/>
               <div class="form-help" id="fuelLogNetPriceHint">輸入加油量與油價後會自動試算，實際付款金額可直接修改。</div>
             </div>
             <div class="form-group">
-              <label class="form-label">油品</label>
+              <label class="form-label" for="fuelLogTypeInput">油品</label>
               <select id="fuelLogTypeInput" class="form-input">
                 <option value="98">98</option>
                 <option value="95">95</option>
@@ -1715,14 +1891,14 @@ body {
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">加滿</label>
+              <label class="form-label" for="fuelLogFullTankInput">加滿</label>
               <select id="fuelLogFullTankInput" class="form-input">
                 <option value="yes">加滿</option>
                 <option value="no">未加滿</option>
               </select>
             </div>
             <div class="form-group form-group-full">
-              <label class="form-label">加油站 / 備註</label>
+              <label class="form-label" for="fuelLogNoteInput">加油站 / 備註</label>
               <input type="text" id="fuelLogNoteInput" class="form-input" placeholder="例：中油、胎壓 36 psi、跳停一次"/>
             </div>
             <div class="form-message" id="fuelLogMessage"></div>
@@ -1741,21 +1917,21 @@ body {
     <div class="modal modal-sm">
       <div class="modal-header">
         <h2>記錄汽油精</h2>
-        <button class="modal-close" id="fuelModalClose">✕</button>
+        <button class="modal-close" id="fuelModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
         <form id="fuelForm">
           <div class="form-grid">
             <div class="form-group form-group-full">
-              <label class="form-label">里程 (km) <span class="required">*</span></label>
+              <label class="form-label" for="fuelMileageInput">里程 (km) <span class="required">*</span></label>
               <input type="number" id="fuelMileageInput" class="form-input" min="0" step="1" required/>
             </div>
             <div class="form-group form-group-full">
-              <label class="form-label">費用 (NT$)</label>
+              <label class="form-label" for="fuelCostInput">費用 (NT$)</label>
               <input type="number" id="fuelCostInput" class="form-input" min="0" step="1" placeholder="0"/>
             </div>
             <div class="form-group form-group-full">
-              <label class="form-label">備註</label>
+              <label class="form-label" for="fuelNoteInput">備註</label>
               <input type="text" id="fuelNoteInput" class="form-input" placeholder="例：加油時添加、品牌..."/>
             </div>
             <div class="form-message" id="fuelMessage"></div>
@@ -3320,8 +3496,8 @@ function renderRecords() {
         <span class="field-value">${costValue ? "NT$ " + costValue.toLocaleString("zh-TW") : "—"}</span>
       </div>
       <div class="record-actions">
-        <button class="btn btn-ghost btn-sm edit-btn" data-idx="${origIdx}" title="編輯">✏️</button>
-        <button class="btn btn-ghost btn-sm delete-btn" data-idx="${origIdx}" title="刪除">🗑️</button>
+        <button class="btn btn-ghost btn-sm edit-btn" data-idx="${origIdx}" title="編輯" aria-label="編輯">✏️</button>
+        <button class="btn btn-ghost btn-sm delete-btn" data-idx="${origIdx}" title="刪除" aria-label="刪除">🗑️</button>
       </div>
     </div>`;
   });
@@ -4558,16 +4734,16 @@ function renderFuelLogSection() {
       : (log.fullTank ? "基準" : "—");
     return `
       <tr>
-        <td>${escapeHtml(log.date)}</td>
-        <td>${escapeHtml(log.fuelType || "—")}</td>
-        <td>${formatMileage(log.mileage)}</td>
-        <td>${log.liters.toFixed(2)} L</td>
-        <td>${formatNumberOrDash(log.unitPrice, 1)}</td>
-        <td>${formatNumberOrDash(log.discount, 1)}</td>
-        <td>${formatNumberOrDash(log.netPrice, 1)}</td>
-        <td>${formatCost(log.cost)}</td>
-        <td>${kmPerLiter}</td>
-        <td>${escapeHtml(log.note || "")}</td>
+        <td data-label="日期">${escapeHtml(log.date)}</td>
+        <td data-label="油品">${escapeHtml(log.fuelType || "—")}</td>
+        <td data-label="里程">${formatMileage(log.mileage)}</td>
+        <td data-label="公升">${log.liters.toFixed(2)} L</td>
+        <td data-label="牌告">${formatNumberOrDash(log.unitPrice, 1)}</td>
+        <td data-label="折抵">${formatNumberOrDash(log.discount, 1)}</td>
+        <td data-label="實付/L">${formatNumberOrDash(log.netPrice, 1)}</td>
+        <td data-label="油費">${formatCost(log.cost)}</td>
+        <td data-label="油耗">${kmPerLiter}</td>
+        <td data-label="備註">${escapeHtml(log.note || "")}</td>
       </tr>
     `;
   }).join("");
