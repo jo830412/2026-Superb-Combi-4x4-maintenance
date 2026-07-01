@@ -1861,8 +1861,8 @@ body {
               <input type="number" id="fuelLogMileageInput" class="form-input" min="0" step="1" required/>
             </div>
             <div class="form-group">
-              <label class="form-label" for="fuelLogLitersInput">加油量 (L) <span class="required">*</span></label>
-              <input type="text" id="fuelLogLitersInput" class="form-input" inputmode="decimal" placeholder="例：45.5" required/>
+              <label class="form-label" for="fuelLogLitersInput">加油量 (L)</label>
+              <input type="text" id="fuelLogLitersInput" class="form-input" inputmode="decimal" placeholder="例：45.5；忘記可留空"/>
             </div>
             <div class="form-group">
               <label class="form-label" for="fuelLogUnitPriceInput">牌告油價 (NT$/L)</label>
@@ -1879,7 +1879,7 @@ body {
             <div class="form-group">
               <label class="form-label" for="fuelLogCostInput">油費 (NT$)</label>
               <input type="number" id="fuelLogCostInput" class="form-input" min="0" step="1" placeholder="0"/>
-              <div class="form-help" id="fuelLogNetPriceHint">輸入加油量與油價後會自動試算，實際付款金額可直接修改。</div>
+              <div class="form-help" id="fuelLogNetPriceHint">輸入加油量與油價會自動試算；若忘記公升數，可填油費與油價反推。</div>
             </div>
             <div class="form-group">
               <label class="form-label" for="fuelLogTypeInput">油品</label>
@@ -3855,19 +3855,49 @@ function getFuelLogCalculatedCost() {
   };
 }
 
-function updateFuelLogCostFromDiscount() {
+function getFuelLogInferredLiters() {
+  const cost = parseDecimalInput(document.getElementById("fuelLogCostInput").value);
+  const unitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
+  const discount = parseDecimalInput(document.getElementById("fuelLogDiscountInput").value) || 0;
+  const netPrice = Number.isFinite(unitPrice) ? Math.max(unitPrice - discount, 0) : 0;
+  if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0 || netPrice <= 0) {
+    return null;
+  }
+  return {
+    liters: cost / netPrice,
+    unitPrice,
+    discount,
+    netPrice,
+    total: Math.round(cost)
+  };
+}
+
+function updateFuelLogCostFromDiscount(options = {}) {
+  const preserveCostInput = Boolean(options.preserveCostInput);
   const calc = getFuelLogCalculatedCost();
   const costInput = document.getElementById("fuelLogCostInput");
   const hint = document.getElementById("fuelLogNetPriceHint");
-  if (!calc) {
-    hint.textContent = "輸入加油量與油價後會自動試算，實際付款金額可直接修改。";
+  if (calc) {
+    if (!preserveCostInput) {
+      costInput.value = calc.total;
+    }
+    hint.textContent =
+      "實付單價 " + calc.netPrice.toFixed(1) +
+      " 元/L，預估油費 NT$ " + calc.total.toLocaleString("zh-TW") +
+      "；若發票金額不同可直接修改。";
     return;
   }
-  costInput.value = calc.total;
-  hint.textContent =
-    "實付單價 " + calc.netPrice.toFixed(1) +
-    " 元/L，預估油費 NT$ " + calc.total.toLocaleString("zh-TW") +
-    "；若發票金額不同可直接修改。";
+
+  const inferred = getFuelLogInferredLiters();
+  if (inferred) {
+    hint.textContent =
+      "實付單價 " + inferred.netPrice.toFixed(1) +
+      " 元/L，會依油費 NT$ " + inferred.total.toLocaleString("zh-TW") +
+      " 反推約 " + inferred.liters.toFixed(2) + " L。";
+    return;
+  }
+
+  hint.textContent = "輸入加油量與油價會自動試算；若忘記公升數，可填油費與油價反推。";
 }
 
 function openMileageModal() {
@@ -4504,8 +4534,9 @@ function handleFuelLogSubmit(e) {
   e.preventDefault();
   const date = document.getElementById("fuelLogDateInput").value;
   const mileage = parseInt(document.getElementById("fuelLogMileageInput").value);
-  const liters = parseDecimalInput(document.getElementById("fuelLogLitersInput").value);
-  const calculatedFuelCost = getFuelLogCalculatedCost();
+  const litersInput = document.getElementById("fuelLogLitersInput");
+  let liters = parseDecimalInput(litersInput.value);
+  let calculatedFuelCost = getFuelLogCalculatedCost();
   const costInputValue = document.getElementById("fuelLogCostInput").value;
   const cost = costInputValue ? parseInt(costInputValue) : (calculatedFuelCost ? calculatedFuelCost.total : 0);
   const fuelType = document.getElementById("fuelLogTypeInput").value;
@@ -4523,8 +4554,15 @@ function handleFuelLogSubmit(e) {
     return;
   }
   if (!Number.isFinite(liters) || liters <= 0) {
-    showFuelLogMessage("error", "請輸入有效的加油公升數。");
-    return;
+    const inferred = getFuelLogInferredLiters();
+    if (inferred) {
+      liters = inferred.liters;
+      calculatedFuelCost = inferred;
+      litersInput.value = liters.toFixed(2);
+    } else {
+      showFuelLogMessage("error", "請輸入加油公升數；或填入油費與牌告油價，系統就能自動反推公升數。");
+      return;
+    }
   }
   if (cost < 0) {
     showFuelLogMessage("error", "油費不能是負數。");
@@ -4858,7 +4896,15 @@ document.addEventListener("DOMContentLoaded", () => {
     clearFuelLogMessage();
     loadFuelPriceForSelectedType({ force: true });
   });
-  ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogCostInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
+  document.getElementById("fuelLogCostInput").addEventListener("input", () => {
+    clearFuelLogMessage();
+    updateFuelLogCostFromDiscount({ preserveCostInput: true });
+  });
+  document.getElementById("fuelLogCostInput").addEventListener("change", () => {
+    clearFuelLogMessage();
+    updateFuelLogCostFromDiscount({ preserveCostInput: true });
+  });
+  ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", clearFuelLogMessage);
     document.getElementById(id).addEventListener("change", clearFuelLogMessage);
   });
