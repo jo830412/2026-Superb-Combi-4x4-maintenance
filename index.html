@@ -103,6 +103,27 @@ body {
   font-size: 0.78rem;
   color: var(--text-secondary);
 }
+.logo-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid rgba(88,166,255,0.32);
+  border-radius: 999px;
+  background: var(--blue-bg);
+  color: #a5d6ff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
 .header-actions {
   display: flex;
   align-items: center;
@@ -1109,6 +1130,10 @@ body {
   .logo-sub {
     font-size: 0.74rem;
   }
+  .version-badge {
+    min-height: 22px;
+    font-size: 0.68rem;
+  }
   .header-actions {
     width: 100%;
     max-width: 100%;
@@ -1425,7 +1450,10 @@ body {
         <span class="logo-icon" aria-hidden="true">🚗</span>
         <div>
           <h1 class="logo-title">2026 Superb Combi 4x4 保養維修紀錄</h1>
-          <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
+          <div class="logo-meta">
+            <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
+            <span class="version-badge" id="appVersion">v2026.07.01.4</span>
+          </div>
         </div>
       </div>
       <div class="header-actions">
@@ -1973,6 +2001,7 @@ const INITIAL_DATA = [];
 // 雲端與本地儲存管理
 // ============================================================
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
+const APP_VERSION = "v2026.07.01.4";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
@@ -4806,6 +4835,8 @@ function refresh() {
 // 事件綁定
 // ============================================================
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("appVersion").textContent = APP_VERSION;
+
   // 今日初始化 (改為從雲端載入)
   initData();
 
