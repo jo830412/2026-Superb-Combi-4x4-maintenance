@@ -2001,7 +2001,7 @@ const INITIAL_DATA = [];
 // 雲端與本地儲存管理
 // ============================================================
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
-const APP_VERSION = "v2026.07.01.4";
+const APP_VERSION = "v2026.07.03.1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
@@ -2015,7 +2015,8 @@ const MAINTENANCE_DUE_MONTHS = 13;
 const DEFAULT_FUEL_TYPE = "98";
 const DEFAULT_FUEL_DISCOUNT = 1.8;
 const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
-const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v1";
+const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v2";
+const FUEL_PRICE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const VEHICLE_PROFILE = {
   name: "2026 Superb Combi 2.0 TSI 4x4",
   displacementCc: 1984,
@@ -3723,6 +3724,12 @@ function normalizeFuelPricePage(html) {
     .trim();
 }
 
+function parseFuelPriceValue(value) {
+  if (value === "" || value == null) return NaN;
+  const price = Number(value);
+  return Number.isFinite(price) && price > 0 ? price : NaN;
+}
+
 function parseFuelPricePage(html) {
   const text = normalizeFuelPricePage(html);
   const readPrice = pattern => {
@@ -3741,10 +3748,14 @@ function parseFuelPricePage(html) {
   };
 }
 
-function getFuelPriceCache() {
+function getFuelPriceCache({ allowStale = false } = {}) {
   try {
     const cached = JSON.parse(localStorage.getItem(FUEL_PRICE_CACHE_KEY) || "null");
-    return cached && cached.prices ? cached : null;
+    const data = normalizeFuelPriceData(cached);
+    if (!data) return null;
+    const cachedAt = Date.parse(cached.cachedAt || "");
+    const isFresh = Number.isFinite(cachedAt) && (Date.now() - cachedAt) <= FUEL_PRICE_CACHE_MAX_AGE_MS;
+    return allowStale || isFresh ? data : null;
   } catch {
     return null;
   }
@@ -3770,16 +3781,17 @@ async function fetchTextWithTimeout(url, timeoutMs = 6500) {
 }
 
 function normalizeFuelPriceData(data) {
-  if (!data || !data.prices) return null;
+  if (!data || Array.isArray(data) || !data.prices) return null;
   const prices = {
-    "92": Number(data.prices["92"]),
-    "95": Number(data.prices["95"]),
-    "98": Number(data.prices["98"])
+    "92": parseFuelPriceValue(data.prices["92"]),
+    "95": parseFuelPriceValue(data.prices["95"]),
+    "98": parseFuelPriceValue(data.prices["98"])
   };
   if (!Number.isFinite(prices["98"]) && !Number.isFinite(prices["95"]) && !Number.isFinite(prices["92"])) return null;
   return {
     source: data.source || "油價來源",
     effectiveAt: data.effectiveAt || data.updatedAt || "",
+    cachedAt: data.cachedAt || "",
     prices
   };
 }
@@ -3810,8 +3822,8 @@ async function fetchCurrentFuelPrices() {
 
   for (const strategy of strategies) {
     try {
-      const data = await strategy();
-      if (data.prices["98"] || data.prices["95"] || data.prices["92"]) {
+      const data = normalizeFuelPriceData(await strategy());
+      if (data) {
         saveFuelPriceCache(data);
         return data;
       }
@@ -3841,6 +3853,7 @@ async function loadFuelPriceForSelectedType({ force = false } = {}) {
   if (priceInput.value && !force) return;
 
   setFuelPriceStatus(`正在抓取全國加油站 ${fuelType} 今日牌價...`);
+  let staleCached = null;
   try {
     const data = await fetchCurrentFuelPrices();
     const price = data.prices[fuelType];
@@ -3859,13 +3872,18 @@ async function loadFuelPriceForSelectedType({ force = false } = {}) {
       updateFuelLogCostFromDiscount();
       return;
     }
+    staleCached = getFuelPriceCache({ allowStale: true });
+  }
+
+  const staleCachedPrice = staleCached?.prices?.[fuelType];
+  if (Number.isFinite(staleCachedPrice)) {
+    setFuelPriceStatus(`無法更新今日油價；上次快取的 ${fuelType} 牌價為 ${staleCachedPrice.toFixed(1)} 元/L，已過期所以未自動套用。`);
+    return;
   }
 
   const latestRecorded = getLatestRecordedFuelPrice(fuelType);
   if (Number.isFinite(latestRecorded)) {
-    priceInput.value = latestRecorded.toFixed(1);
-    setFuelPriceStatus(`無法抓取今日油價，先帶入最近紀錄的 ${fuelType} 牌價 ${latestRecorded.toFixed(1)} 元/L。`);
-    updateFuelLogCostFromDiscount();
+    setFuelPriceStatus(`無法抓取今日油價；最近紀錄的 ${fuelType} 牌價為 ${latestRecorded.toFixed(1)} 元/L，為避免誤用舊油價，請確認後手動輸入。`);
     return;
   }
   setFuelPriceStatus("暫時抓不到今日油價，請手動輸入牌告油價。");

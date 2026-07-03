@@ -4,10 +4,14 @@ const SHEET_NAME = "保養紀錄";
 const HEADER_ROW = 4;
 const DATA_START_ROW = 5;
 const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註"];
+const NPC_FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 
 function doGet(e) {
   const aiResponse = routeAiRecordAssistantGet_(e);
   if (aiResponse) return aiResponse;
+
+  const fuelPriceResponse = routeFuelPriceGet_(e);
+  if (fuelPriceResponse) return fuelPriceResponse;
 
   const sheet = getSheet();
   ensureHeaders(sheet);
@@ -132,4 +136,81 @@ function parseNumber(value, fallback) {
 function createJsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function routeFuelPriceGet_(e) {
+  const action = e && e.parameter && e.parameter.action;
+  if (action !== "fuelPrice") return null;
+
+  try {
+    return createJsonResponse(fetchNpcFuelPrices_());
+  } catch (err) {
+    return createJsonResponse({
+      ok: false,
+      source: "全國加油站",
+      message: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+function fetchNpcFuelPrices_() {
+  const response = UrlFetchApp.fetch(NPC_FUEL_PRICE_SOURCE_URL, {
+    muteHttpExceptions: true,
+    followRedirects: true
+  });
+  const status = response.getResponseCode();
+  if (status < 200 || status >= 300) {
+    throw new Error("NPC fuel price page returned HTTP " + status);
+  }
+
+  const html = response.getContentText("UTF-8");
+  return parseNpcFuelPricePage_(html);
+}
+
+function parseNpcFuelPricePage_(html) {
+  const text = normalizeFuelPricePage_(html);
+  const prices = {
+    "92": readNpcFuelPrice_(text, /92無鉛汽油\s*([0-9]+(?:\.[0-9]+)?)\s*元/),
+    "95": readNpcFuelPrice_(text, /95\+?無鉛汽油\s*([0-9]+(?:\.[0-9]+)?)\s*元/),
+    "98": readNpcFuelPrice_(text, /98無鉛汽油\s*([0-9]+(?:\.[0-9]+)?)\s*元/)
+  };
+
+  if (!Number.isFinite(prices["92"]) && !Number.isFinite(prices["95"]) && !Number.isFinite(prices["98"])) {
+    throw new Error("NPC fuel price page did not contain gasoline prices");
+  }
+
+  const effectiveMatch = text.match(/零售參考價\s*([^，。]+?)\s*實行/);
+  return {
+    ok: true,
+    source: "全國加油站",
+    effectiveAt: effectiveMatch ? effectiveMatch[1].trim() : "",
+    updatedAt: new Date().toISOString(),
+    prices
+  };
+}
+
+function readNpcFuelPrice_(text, pattern) {
+  const match = text.match(pattern);
+  return match ? parseFloat(match[1]) : null;
+}
+
+function normalizeFuelPricePage_(html) {
+  return decodeHtmlEntities_(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function decodeHtmlEntities_(value) {
+  return String(value || "")
+    .replace(/&#x([0-9a-f]+);/gi, function(_, hex) {
+      return String.fromCharCode(parseInt(hex, 16));
+    })
+    .replace(/&#(\d+);/g, function(_, dec) {
+      return String.fromCharCode(parseInt(dec, 10));
+    })
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
 }

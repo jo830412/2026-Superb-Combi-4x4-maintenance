@@ -12,6 +12,8 @@ Static GitHub Pages site for tracking the 2026 Superb Combi 4x4 maintenance reco
 ## Files
 
 - `index.html`: the whole website and app logic.
+- `apps-script/Code.js`: Google Sheet sync and the fuel-price proxy used by the static site.
+- `apps-script/ai-record-assistant.gs`: optional AI record assistant proxy additions.
 - `.nojekyll`: keeps GitHub Pages in plain static-file mode.
 
 ## Update Flow
@@ -51,6 +53,12 @@ To enable it:
 The frontend first calls `?action=aiStatus`. If the AI proxy is not deployed or
 the key is missing, the AI dialog shows an error and does not send the record
 draft request, so the old array-sync POST flow is protected.
+
+## Fuel Price Proxy
+
+The fuel log calls `?action=fuelPrice` on the Apps Script API. Keep
+`apps-script/Code.js` deployed with the web app so the static GitHub Pages site
+can read the NPC 全國加油站 official price page without browser CORS failures.
 
 ## Notes
 
