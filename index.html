@@ -2368,9 +2368,9 @@ async function syncToCloud(data) {
 function saveRecords(data, { announce = true } = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   setSyncStatus("syncing", "本機已保存，同步中");
-  if (announce) showToast("已儲存到本機，正在同步…");
+  if (announce) showToast("已儲存到本機，正在同步…", null, { routine: true });
   syncToCloud(data).then(ok => {
-    if (announce) showToast(ok ? "已同步雲端" : "同步失敗，本機資料仍保留");
+    if (announce) showToast(ok ? "已同步雲端" : "同步失敗，本機資料仍保留", null, { routine: true });
   });
 }
 
@@ -2381,11 +2381,12 @@ function hideToast() {
   toastTimer = null;
 }
 
-function showToast(message, action = null) {
+function showToast(message, action = null, { routine = false } = {}) {
   const toast = document.getElementById("toast");
   const messageEl = document.getElementById("toastMessage");
   const actionBtn = document.getElementById("toastAction");
   if (!toast || !messageEl || !actionBtn) return;
+  if (routine && !toast.hidden && !actionBtn.hidden) return;
 
   if (toastTimer) clearTimeout(toastTimer);
   messageEl.textContent = message;
@@ -2546,16 +2547,36 @@ function getBackupDateRange(sourceRecords) {
   return newest === oldest ? newest : `${oldest} ～ ${newest}`;
 }
 
+function revokeObjectUrlSafely(url) {
+  if (!url) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch (error) {}
+}
+
 function downloadJsonBackup(sourceRecords, label) {
-  const backup = JSON.stringify(buildBackupEnvelope(sourceRecords), null, 2);
-  const blob = new Blob([backup], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `車輛保養紀錄備份_${label}_${formatDateYMD(new Date())}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  if (backupDownloadSpy) backupDownloadSpy(label);
+  let url = "";
+  try {
+    const backup = JSON.stringify(buildBackupEnvelope(sourceRecords), null, 2);
+    const blob = new Blob([backup], { type: "application/json;charset=utf-8" });
+    url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `車輛保養紀錄備份_${label}_${formatDateYMD(new Date())}.json`;
+    anchor.click();
+    revokeObjectUrlSafely(url);
+    if (backupDownloadSpy) backupDownloadSpy(label);
+    return true;
+  } catch (error) {
+    revokeObjectUrlSafely(url);
+    return false;
+  }
+}
+
+function exportJsonBackup() {
+  if (!downloadJsonBackup(records, "手動備份")) {
+    showToast("備份下載失敗，請再試一次。");
+  }
 }
 
 function stageBackupRestore(fileText) {
@@ -2584,7 +2605,10 @@ function closeBackupRestoreModal() {
 function confirmBackupRestore() {
   if (!pendingRestoreRecords) return;
 
-  downloadJsonBackup(records, "還原前");
+  if (!downloadJsonBackup(records, "還原前")) {
+    showToast("還原前備份下載失敗，尚未還原資料，請再試一次。");
+    return;
+  }
   records = pendingRestoreRecords.map(record => ({ ...record }));
   pendingRestoreRecords = null;
   saveRecords(records, { announce: false });
@@ -5301,7 +5325,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 匯出
   document.getElementById("btnExport").addEventListener("click", exportCSV);
-  document.getElementById("btnBackupExport").addEventListener("click", () => downloadJsonBackup(records, "手動備份"));
+  document.getElementById("btnBackupExport").addEventListener("click", exportJsonBackup);
   document.getElementById("btnBackupRestore").addEventListener("click", () => document.getElementById("backupRestoreInput").click());
   document.getElementById("backupRestoreInput").addEventListener("change", async event => {
     const input = event.target;

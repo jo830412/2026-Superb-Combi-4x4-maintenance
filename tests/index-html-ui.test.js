@@ -32,7 +32,7 @@ function createElement() {
   };
 }
 
-function loadApp() {
+function loadApp({ fetchImpl, urlApi } = {}) {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   const script = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)]
     .map(match => match[1])
@@ -54,7 +54,7 @@ function loadApp() {
     Number,
     RegExp,
     String,
-    URL: { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
+    URL: urlApi || { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
     console,
     document: {
       addEventListener() {},
@@ -64,7 +64,7 @@ function loadApp() {
       querySelectorAll() { return []; }
     },
     Chart: class { destroy() {} },
-    fetch: async () => ({ ok: true, json: async () => ({ status: "success" }) }),
+    fetch: fetchImpl || (async () => ({ ok: true, json: async () => ({ status: "success" }) })),
     localStorage: {
       getItem(key) { return localStore.get(key) || null; },
       setItem(key, value) { localStore.set(key, value); }
@@ -74,7 +74,7 @@ function loadApp() {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -87,6 +87,12 @@ function fuelRecord() {
     detail: "加油｜98｜31.00 L｜加滿｜牌告 33.3 元/L｜優惠 1.8 元/L｜實付 31.5 元/L",
     note: "全國加油站"
   };
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(next => { resolve = next; });
+  return { promise, resolve };
 }
 
 test("editing a fuel record opens the fuel editor with parsed values", () => {
@@ -186,6 +192,27 @@ test("owner actions route to their forms and deleted records can be restored", (
   assert.deepEqual(api.getRecords(), [original]);
 });
 
+test("routine sync completion does not replace an active delete Undo action", async () => {
+  const pendingSync = deferred();
+  const { api, element } = loadApp({ fetchImpl: () => pendingSync.promise });
+  const original = fuelRecord();
+  api.setRecords([original]);
+
+  api.saveRecords([original]);
+  api.setDeleteTargetIndex(0);
+  api.handleDeleteConfirm();
+  pendingSync.resolve({ ok: true });
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(element("toastAction").hidden, false);
+  assert.equal(element("toastAction").textContent, "復原");
+  element("toastAction").onclick();
+  assert.deepEqual(api.getRecords(), [original]);
+});
+
 test("backup helpers validate the envelope and find only likely duplicates", () => {
   const { api } = loadApp();
   const original = fuelRecord();
@@ -232,6 +259,37 @@ test("confirmed restore creates a recovery backup then replaces every record", (
   assert.equal(api.getDownloadLabels().length, 1);
   assert.match(api.getDownloadLabels()[0], /還原前/);
   assert.match(element("toastMessage").textContent, /已還原 1 筆紀錄/);
+});
+
+test("backup download errors keep restore confirmation and current records intact", () => {
+  const { api, element } = loadApp({
+    urlApi: {
+      createObjectURL() { throw new Error("download unavailable"); },
+      revokeObjectURL() {}
+    }
+  });
+  const original = [{ ...fuelRecord(), detail: "目前資料" }];
+  const incoming = [{ ...fuelRecord(), date: "2026-07-13", detail: "備份資料" }];
+  api.setRecords(original);
+  assert.equal(api.stageBackupRestore(JSON.stringify(api.buildBackupEnvelope(incoming))).ok, true);
+
+  assert.doesNotThrow(() => api.confirmBackupRestore());
+  assert.deepEqual(api.getRecords(), original);
+  assert.equal(element("backupRestoreModal").style.display, "flex");
+  assert.match(element("toastMessage").textContent, /備份下載失敗/);
+});
+
+test("manual backup export catches download errors", () => {
+  const { api, element } = loadApp({
+    urlApi: {
+      createObjectURL() { throw new Error("download unavailable"); },
+      revokeObjectURL() {}
+    }
+  });
+
+  assert.equal(typeof api.exportJsonBackup, "function");
+  assert.doesNotThrow(() => api.exportJsonBackup());
+  assert.match(element("toastMessage").textContent, /備份下載失敗/);
 });
 
 test("invalid restore files preserve current records and show an error", () => {
