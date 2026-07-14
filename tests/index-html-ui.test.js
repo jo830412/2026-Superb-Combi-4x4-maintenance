@@ -73,7 +73,7 @@ function loadApp() {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, getRecords: () => records, setRecords: value => { records = value; } };`, context);
+  vm.runInContext(`${script}\n;globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, getRecords: () => records, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -134,12 +134,27 @@ test("the mobile UI provides view tabs and five quick-entry routes", () => {
   }
 });
 
-test("the UI exposes actionable owner tasks and an undoable delete flow", () => {
-  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+test("owner actions route to their forms and deleted records can be restored", () => {
+  const { api, element } = loadApp();
+  const original = fuelRecord();
+  api.setRecords([original]);
 
-  assert.match(html, /function runOwnerAction\(/);
-  assert.match(html, /data-owner-action=/);
-  assert.match(html, /function restoreDeletedRecord\(/);
-  assert.match(html, /id="toast"/);
-  assert.match(html, /id="toastAction"/);
+  api.runOwnerAction("mileage");
+  assert.equal(element("mileageModal").style.display, "flex");
+  api.runOwnerAction("fuel");
+  assert.equal(element("fuelLogModal").style.display, "flex");
+
+  api.setDeleteTargetIndex(0);
+  api.handleDeleteConfirm();
+  assert.equal(api.getRecords().length, 0);
+  assert.equal(element("toastAction").textContent, "復原");
+  api.restoreDeletedRecord();
+  assert.deepEqual(api.getRecords(), [original]);
+});
+
+test("the README documents the UI regression command and fuel editing behavior", () => {
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+
+  assert.match(readme, /node --test tests\\index-html-ui\.test\.js/);
+  assert.match(readme, /加油紀錄.*完整.*加油表單/);
 });
