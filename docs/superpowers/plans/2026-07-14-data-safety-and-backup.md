@@ -167,7 +167,7 @@ Use one download function for both normal and automatic backup. Build a blob fro
 
 `stageBackupRestore(fileText)` must parse in a `try/catch`, call `validateBackupEnvelope`, store only validated cloned records in `pendingRestoreRecords`, render `筆數：N 筆／日期：${getBackupDateRange(records)}`, and open the confirmation modal. On failure, clear pending state and show `showToast("備份檔無法還原：" + error)`.
 
-`confirmBackupRestore()` must return early if there is no staged value. Otherwise call `downloadJsonBackup(records, "還原前")`, assign `records = pendingRestoreRecords.map(record => ({ ...record }))`, clear pending state, call `saveRecords(records)`, close the modal, refresh, and call `showToast(`已還原 ${records.length} 筆紀錄`)` after the save call. The file-input `change` handler reads `file.text()` and always resets `input.value = ""` so the same file can be selected again.
+`confirmBackupRestore()` must return early if there is no staged value. Otherwise call `downloadJsonBackup(records, "還原前")`, assign `records = pendingRestoreRecords.map(record => ({ ...record }))`, clear pending state, call `saveRecords(records, { announce: false })` so background sync cannot replace the restore result, close the modal, refresh, and call `showToast(`已還原 ${records.length} 筆紀錄`)`. The file-input `change` handler reads `file.text()` and always resets `input.value = ""` so the same file can be selected again.
 
 - [ ] **Step 4: Run the focused test, full regression suite, and parser**
 
