@@ -33,6 +33,7 @@ GitHub Pages usually updates within 1-2 minutes after `git push`.
 
 ## Key UX Behavior
 
+- JSON backups can be downloaded locally; a full restore downloads a recovery backup first, and duplicate warnings can be overridden with Save Anyway.
 - 加油紀錄在編輯時會開啟完整加油表單，保留公升、油價、折扣、油費與加滿狀態的自動計算；儲存會更新原本那一筆紀錄。
 - 手機版以「新增」入口提供加油、保養／維修、里程、照片與文字快速新增，並以總覽、紀錄、分析切換主要內容。
 - 刪除紀錄後會顯示短暫的「復原」操作；儲存與雲端同步結果也會以提示列回饋。

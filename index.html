@@ -2092,6 +2092,22 @@ body {
     </div>
   </div>
 
+  <div id="duplicateModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>可能重複的紀錄</h2>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);line-height:1.6">這筆紀錄可能與下列資料重複。請確認後再儲存；你仍可選擇「仍要儲存」。</p>
+        <ul id="duplicateList" style="margin:12px 0 0;padding-left:20px;color:var(--text-secondary);line-height:1.6"></ul>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="duplicateCancelBtn" type="button">取消</button>
+        <button class="btn btn-primary" id="duplicateConfirmBtn" type="button">仍要儲存</button>
+      </div>
+    </div>
+  </div>
+
   <div id="quickEntryModal" class="modal-overlay" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
@@ -2188,6 +2204,7 @@ let activeView = "overview";
 let deletedRecordSnapshot = null;
 let toastTimer = null;
 let pendingRestoreRecords = null;
+let pendingDuplicateSave = null;
 let backupDownloadSpy = null;
 
 const RECORD_TEMPLATES = {
@@ -2582,6 +2599,32 @@ function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
     .join("|");
   const key = getDuplicateKey(record);
   return records.filter((candidate, index) => index !== excludeIndex && getDuplicateKey(candidate) === key);
+}
+
+function requestRecordSave(record, { editIndex = -1, commit }) {
+  const candidates = findLikelyDuplicates(record, { excludeIndex: editIndex });
+  if (!candidates.length) {
+    commit();
+    return;
+  }
+
+  pendingDuplicateSave = commit;
+  document.getElementById("duplicateList").innerHTML = candidates.map(candidate => `
+    <li>${escapeHtml(candidate.date)} · ${escapeHtml(candidate.mileage ?? "—")} km · ${escapeHtml(candidate.category)}</li>
+  `).join("");
+  document.getElementById("duplicateModal").style.display = "flex";
+}
+
+function closeDuplicateModal() {
+  pendingDuplicateSave = null;
+  document.getElementById("duplicateModal").style.display = "none";
+}
+
+function confirmDuplicateSave() {
+  const commit = pendingDuplicateSave;
+  pendingDuplicateSave = null;
+  closeDuplicateModal();
+  if (commit) commit();
 }
 
 function formatDateYM(date) {
@@ -5004,15 +5047,16 @@ function handleFuelLogSubmit(e) {
     cost,
     note
   };
-  if (fuelEditIndex >= 0) {
-    records[fuelEditIndex] = record;
-  } else {
-    records.push(record);
-  }
-
-  saveRecords(records);
-  closeFuelLogModal();
-  refresh();
+  requestRecordSave(record, {
+    editIndex: fuelEditIndex,
+    commit: () => {
+      if (fuelEditIndex >= 0) records[fuelEditIndex] = record;
+      else records.push(record);
+      saveRecords(records);
+      closeFuelLogModal();
+      refresh();
+    }
+  });
 }
 
 function handleFuelSubmit(e) {
@@ -5093,15 +5137,16 @@ function handleFormSubmit(e) {
     return;
   }
 
-  if (idx === -1) {
-    records.push(rec);
-  } else {
-    records[idx] = rec;
-  }
-
-  saveRecords(records);
-  closeModal();
-  refresh();
+  requestRecordSave(rec, {
+    editIndex: idx,
+    commit: () => {
+      if (idx === -1) records.push(rec);
+      else records[idx] = rec;
+      saveRecords(records);
+      closeModal();
+      refresh();
+    }
+  });
 }
 
 // ============================================================
@@ -5275,6 +5320,12 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("backupRestoreConfirmBtn").addEventListener("click", confirmBackupRestore);
   document.getElementById("backupRestoreModal").addEventListener("click", event => {
     if (event.target === document.getElementById("backupRestoreModal")) closeBackupRestoreModal();
+  });
+
+  document.getElementById("duplicateCancelBtn").addEventListener("click", closeDuplicateModal);
+  document.getElementById("duplicateConfirmBtn").addEventListener("click", confirmDuplicateSave);
+  document.getElementById("duplicateModal").addEventListener("click", event => {
+    if (event.target === document.getElementById("duplicateModal")) closeDuplicateModal();
   });
 
   // 同步狀態重試

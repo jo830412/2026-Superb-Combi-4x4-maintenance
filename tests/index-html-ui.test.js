@@ -74,7 +74,7 @@ function loadApp() {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, downloadJsonBackup, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -121,6 +121,39 @@ test("saving an edited fuel record replaces its original record", () => {
   assert.equal(api.getRecords().length, 1);
   assert.equal(api.getRecords()[0].cost, 1008);
   assert.equal(api.getRecords()[0].note, "已修正金額");
+});
+
+test("a generic likely duplicate waits for Save Anyway", () => {
+  const { api, element } = loadApp();
+  const original = fuelRecord();
+  api.setRecords([original]);
+  element("editIndex").value = "-1";
+  element("formDate").value = original.date;
+  element("formMileage").value = String(original.mileage);
+  element("formCategory").value = original.category;
+  element("formCost").value = "1000";
+  element("formDetail").value = "Duplicate candidate";
+  element("formNote").value = "";
+
+  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(element("duplicateModal").style.display, "flex");
+  assert.equal(api.getRecords().length, 1);
+  api.confirmDuplicateSave();
+  assert.equal(api.getRecords().length, 2);
+});
+
+test("an unchanged fuel edit excludes itself from duplicate warnings", () => {
+  const { api, element } = loadApp();
+  const original = fuelRecord();
+  api.setRecords([original]);
+  api.openFuelLogModal({ editIndex: 0 });
+
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(element("duplicateModal").style.display, "none");
+  assert.equal(api.getRecords().length, 1);
+  assert.equal(api.findLikelyDuplicates(original, { excludeIndex: 0 }).length, 0);
 });
 
 test("the mobile UI provides view tabs and five quick-entry routes", () => {
@@ -196,6 +229,7 @@ test("confirmed restore creates a recovery backup then replaces every record", (
   api.confirmBackupRestore();
 
   assert.deepEqual(JSON.parse(JSON.stringify(api.getRecords())), incoming);
+  assert.equal(api.getDownloadLabels().length, 1);
   assert.match(api.getDownloadLabels()[0], /還原前/);
   assert.match(element("toastMessage").textContent, /已還原 1 筆紀錄/);
 });
@@ -219,4 +253,10 @@ test("the README documents the UI regression command and fuel editing behavior",
 
   assert.match(readme, /node --test tests\\index-html-ui\.test\.js/);
   assert.match(readme, /加油紀錄.*完整.*加油表單/);
+});
+
+test("the README documents backups and overrideable duplicate warnings", () => {
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+
+  assert.match(readme, /JSON backups?.*recovery backup.*duplicate warnings?/i);
 });
