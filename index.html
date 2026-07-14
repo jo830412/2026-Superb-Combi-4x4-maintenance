@@ -270,6 +270,25 @@ body {
   white-space: normal;
   text-align: left;
 }
+.toast {
+  position: fixed;
+  z-index: 320;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+}
+.toast[hidden] { display: none; }
+.toast .btn { min-height: 40px; margin-left: auto; }
 
 /* ============================================================
    Stats Cards
@@ -479,6 +498,12 @@ body {
   color: var(--text-secondary);
   font-size: 0.75rem;
   font-weight: 700;
+}
+.owner-action-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .owner-action-due .owner-action-status { color: var(--red); }
 .owner-action-soon .owner-action-status { color: var(--orange); }
@@ -2056,6 +2081,11 @@ body {
     </div>
   </div>
 
+  <div id="toast" class="toast" hidden role="status" aria-live="polite">
+    <span id="toastMessage"></span>
+    <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
@@ -2124,6 +2154,8 @@ let photoPreviewUrl = "";
 let aiBackendReady = null;
 let fuelEditIndex = -1;
 let activeView = "overview";
+let deletedRecordSnapshot = null;
+let toastTimer = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -2283,10 +2315,38 @@ async function syncToCloud(data) {
   }
 }
 
-function saveRecords(data) {
+function saveRecords(data, { announce = true } = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   setSyncStatus("syncing", "本機已保存，同步中");
-  syncToCloud(data); // 背景同步
+  if (announce) showToast("已儲存到本機，正在同步…");
+  syncToCloud(data).then(ok => {
+    if (announce) showToast(ok ? "已同步雲端" : "同步失敗，本機資料仍保留");
+  });
+}
+
+function hideToast() {
+  const toast = document.getElementById("toast");
+  if (toast) toast.hidden = true;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = null;
+}
+
+function showToast(message, action = null) {
+  const toast = document.getElementById("toast");
+  const messageEl = document.getElementById("toastMessage");
+  const actionBtn = document.getElementById("toastAction");
+  if (!toast || !messageEl || !actionBtn) return;
+
+  if (toastTimer) clearTimeout(toastTimer);
+  messageEl.textContent = message;
+  toast.hidden = false;
+  actionBtn.hidden = !action;
+  actionBtn.textContent = action ? action.label : "";
+  actionBtn.onclick = action ? () => {
+    hideToast();
+    action.onClick();
+  } : null;
+  toastTimer = setTimeout(hideToast, action ? 7000 : 3500);
 }
 
 // ============================================================
@@ -3101,7 +3161,9 @@ function buildOwnerActions() {
       status: "info",
       name: "更新目前里程",
       statusText: "建議",
-      meta: "里程是保養、耗材與油耗追蹤的基準。"
+      meta: "里程是保養、耗材與油耗追蹤的基準。",
+      action: "mileage",
+      actionLabel: "更新里程"
     });
   }
   actions.push(maintenance);
@@ -3136,7 +3198,9 @@ function buildOwnerActions() {
       status: "info",
       name: "建立第一筆加油紀錄",
       statusText: "油耗基準",
-      meta: "連續兩次加滿後會開始計算平均與最近油耗。"
+      meta: "連續兩次加滿後會開始計算平均與最近油耗。",
+      action: "fuel",
+      actionLabel: "新增加油"
     });
   }
 
@@ -3200,11 +3264,27 @@ function renderOwnerDashboard() {
     <div class="owner-action owner-action-${escapeHtml(action.status)}">
       <div class="owner-action-top">
         <div class="owner-action-name">${escapeHtml(action.name)}</div>
-        <div class="owner-action-status">${escapeHtml(action.statusText)}</div>
+        <div class="owner-action-control">
+          <div class="owner-action-status">${escapeHtml(action.statusText)}</div>
+          ${action.action ? `<button class="btn btn-ghost btn-sm" type="button" data-owner-action="${escapeHtml(action.action)}">${escapeHtml(action.actionLabel)}</button>` : ""}
+        </div>
       </div>
       <div class="owner-action-meta">${escapeHtml(action.meta || "")}</div>
     </div>
   `).join("");
+
+  list.querySelectorAll("[data-owner-action]").forEach(button => {
+    button.addEventListener("click", () => runOwnerAction(button.dataset.ownerAction));
+  });
+}
+
+function runOwnerAction(action) {
+  if (action === "mileage") {
+    openMileageModal();
+  } else if (action === "fuel") {
+    setActiveView("records");
+    openFuelLogModal();
+  }
 }
 
 function getOwnershipCostBuckets() {
@@ -4877,10 +4957,24 @@ function closeDeleteModal() {
 }
 function handleDeleteConfirm() {
   if (deleteTargetIndex < 0) return;
-  records.splice(deleteTargetIndex, 1);
-  saveRecords(records);
+  const index = deleteTargetIndex;
+  const [record] = records.splice(index, 1);
+  if (!record) return;
+  deletedRecordSnapshot = { record, index };
+  saveRecords(records, { announce: false });
   closeDeleteModal();
   refresh();
+  showToast("已刪除紀錄", { label: "復原", onClick: restoreDeletedRecord });
+}
+
+function restoreDeletedRecord() {
+  if (!deletedRecordSnapshot) return;
+  const { record, index } = deletedRecordSnapshot;
+  records.splice(Math.min(index, records.length), 0, record);
+  deletedRecordSnapshot = null;
+  saveRecords(records, { announce: false });
+  refresh();
+  showToast("已復原紀錄");
 }
 
 // ============================================================

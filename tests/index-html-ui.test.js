@@ -133,3 +133,13 @@ test("the mobile UI provides view tabs and five quick-entry routes", () => {
     assert.match(html, new RegExp(`data-quick-entry="${action}"`));
   }
 });
+
+test("the UI exposes actionable owner tasks and an undoable delete flow", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+
+  assert.match(html, /function runOwnerAction\(/);
+  assert.match(html, /data-owner-action=/);
+  assert.match(html, /function restoreDeletedRecord\(/);
+  assert.match(html, /id="toast"/);
+  assert.match(html, /id="toastAction"/);
+});
