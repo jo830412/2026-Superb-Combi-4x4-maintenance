@@ -691,6 +691,11 @@ body {
   gap: 12px;
   flex-wrap: wrap;
 }
+.data-management-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .search-wrap {
   position: relative;
   flex: 1;
@@ -1299,6 +1304,9 @@ body {
     min-height: 44px;
     font-size: 16px;
   }
+  .data-management-actions .btn {
+    min-height: 44px;
+  }
   .filter-pills {
     width: 100%;
     max-width: 100%;
@@ -1758,6 +1766,11 @@ body {
         <option value="">所有年份</option>
       </select>
       <button class="btn btn-ghost" id="btnExport" type="button">↓ CSV</button>
+      <div class="data-management-actions">
+        <button class="btn btn-ghost" id="btnBackupExport" type="button">↓ 備份 JSON</button>
+        <button class="btn btn-ghost" id="btnBackupRestore" type="button">還原備份</button>
+        <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
+      </div>
     </div>
     <div class="filter-summary" id="filterSummary">顯示 0 筆</div>
   </section>
@@ -2063,6 +2076,22 @@ body {
     </div>
   </div>
 
+  <div id="backupRestoreModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>確認還原備份</h2>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);line-height:1.6">還原會先下載目前資料的復原備份，接著以備份檔完整取代所有紀錄。</p>
+        <p id="backupRestoreSummary" style="margin-top:12px;font-weight:600"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="backupRestoreCancelBtn" type="button">取消</button>
+        <button class="btn btn-primary" id="backupRestoreConfirmBtn" type="button">確認還原</button>
+      </div>
+    </div>
+  </div>
+
   <div id="quickEntryModal" class="modal-overlay" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
@@ -2158,6 +2187,8 @@ let fuelEditIndex = -1;
 let activeView = "overview";
 let deletedRecordSnapshot = null;
 let toastTimer = null;
+let pendingRestoreRecords = null;
+let backupDownloadSpy = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -2496,6 +2527,53 @@ function getBackupDateRange(sourceRecords) {
   const newest = datedRecords[0].date;
   const oldest = datedRecords[datedRecords.length - 1].date;
   return newest === oldest ? newest : `${oldest} ～ ${newest}`;
+}
+
+function downloadJsonBackup(sourceRecords, label) {
+  const backup = JSON.stringify(buildBackupEnvelope(sourceRecords), null, 2);
+  const blob = new Blob([backup], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `車輛保養紀錄備份_${label}_${formatDateYMD(new Date())}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  if (backupDownloadSpy) backupDownloadSpy(label);
+}
+
+function stageBackupRestore(fileText) {
+  try {
+    const validation = validateBackupEnvelope(JSON.parse(fileText));
+    if (!validation.ok) throw new Error(validation.error);
+
+    pendingRestoreRecords = validation.records.map(record => ({ ...record }));
+    document.getElementById("backupRestoreSummary").textContent =
+      `筆數：${pendingRestoreRecords.length} 筆／日期：${getBackupDateRange(pendingRestoreRecords)}`;
+    document.getElementById("backupRestoreModal").style.display = "flex";
+    return { ok: true };
+  } catch (error) {
+    pendingRestoreRecords = null;
+    const message = error instanceof Error ? error.message : String(error);
+    showToast("備份檔無法還原：" + message);
+    return { ok: false, error: message };
+  }
+}
+
+function closeBackupRestoreModal() {
+  pendingRestoreRecords = null;
+  document.getElementById("backupRestoreModal").style.display = "none";
+}
+
+function confirmBackupRestore() {
+  if (!pendingRestoreRecords) return;
+
+  downloadJsonBackup(records, "還原前");
+  records = pendingRestoreRecords.map(record => ({ ...record }));
+  pendingRestoreRecords = null;
+  saveRecords(records, { announce: false });
+  closeBackupRestoreModal();
+  refresh();
+  showToast(`已還原 ${records.length} 筆紀錄`);
 }
 
 function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
@@ -5178,6 +5256,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 匯出
   document.getElementById("btnExport").addEventListener("click", exportCSV);
+  document.getElementById("btnBackupExport").addEventListener("click", () => downloadJsonBackup(records, "手動備份"));
+  document.getElementById("btnBackupRestore").addEventListener("click", () => document.getElementById("backupRestoreInput").click());
+  document.getElementById("backupRestoreInput").addEventListener("change", async event => {
+    const input = event.target;
+    const file = input.files?.[0];
+    try {
+      if (!file) return;
+      stageBackupRestore(await file.text());
+    } catch (error) {
+      pendingRestoreRecords = null;
+      showToast("備份檔無法還原：" + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      input.value = "";
+    }
+  });
+  document.getElementById("backupRestoreCancelBtn").addEventListener("click", closeBackupRestoreModal);
+  document.getElementById("backupRestoreConfirmBtn").addEventListener("click", confirmBackupRestore);
+  document.getElementById("backupRestoreModal").addEventListener("click", event => {
+    if (event.target === document.getElementById("backupRestoreModal")) closeBackupRestoreModal();
+  });
 
   // 同步狀態重試
   document.getElementById("syncStatus").addEventListener("click", () => syncToCloud(records));

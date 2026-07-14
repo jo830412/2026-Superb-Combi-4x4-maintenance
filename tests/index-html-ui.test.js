@@ -19,6 +19,7 @@ function createElement() {
     classList: { add() {}, remove() {}, toggle() {} },
     appendChild(child) { this.options.push(child); return child; },
     addEventListener() {},
+    click() {},
     getContext() { return {}; },
     querySelectorAll() { return []; },
     removeAttribute() {},
@@ -73,7 +74,7 @@ function loadApp() {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, getRecords: () => records, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, downloadJsonBackup, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -172,6 +173,45 @@ test("backup helpers validate the envelope and find only likely duplicates", () 
   assert.equal(api.findLikelyDuplicates({ ...original }).length, 1);
   assert.equal(api.findLikelyDuplicates({ ...original, category: "different category" }).length, 0);
   assert.equal(api.findLikelyDuplicates({ ...original }, { excludeIndex: 0 }).length, 0);
+});
+
+test("backup date ranges sort valid dates and fall back for empty backups", () => {
+  const { api } = loadApp();
+
+  assert.equal(api.getBackupDateRange([
+    { date: "2026-07-14" },
+    { date: "2026-07-01" },
+    { date: "invalid" }
+  ]), "2026-07-01 ～ 2026-07-14");
+  assert.equal(api.getBackupDateRange([]), "無日期資料");
+});
+
+test("confirmed restore creates a recovery backup then replaces every record", () => {
+  const { api, element } = loadApp();
+  api.setRecords([{ ...fuelRecord(), detail: "目前資料" }]);
+  const incoming = [{ ...fuelRecord(), date: "2026-07-13", detail: "備份資料" }];
+
+  assert.equal(api.stageBackupRestore(JSON.stringify(api.buildBackupEnvelope(incoming))).ok, true);
+  assert.equal(api.getRecords()[0].detail, "目前資料");
+  api.confirmBackupRestore();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getRecords())), incoming);
+  assert.match(api.getDownloadLabels()[0], /還原前/);
+  assert.match(element("toastMessage").textContent, /已還原 1 筆紀錄/);
+});
+
+test("invalid restore files preserve current records and show an error", () => {
+  const { api, element } = loadApp();
+  const original = [{ ...fuelRecord(), detail: "不能變更" }];
+  api.setRecords(original);
+
+  assert.equal(api.stageBackupRestore("not json").ok, false);
+  assert.deepEqual(api.getRecords(), original);
+  assert.match(element("toastMessage").textContent, /備份檔無法還原/);
+
+  assert.equal(api.stageBackupRestore(JSON.stringify({ format: "wrong", version: 1, records: [] })).ok, false);
+  assert.deepEqual(api.getRecords(), original);
+  assert.match(element("toastMessage").textContent, /備份檔無法還原/);
 });
 
 test("the README documents the UI regression command and fuel editing behavior", () => {
