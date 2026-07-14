@@ -2098,6 +2098,8 @@ const INITIAL_DATA = [];
 // 雲端與本地儲存管理
 // ============================================================
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
+const BACKUP_FORMAT = "superb-maintenance-backup";
+const BACKUP_VERSION = 1;
 const APP_VERSION = "v2026.07.03.1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
@@ -2424,6 +2426,86 @@ function formatDateYMD(date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
+
+function getStoredRecordValidationError(record) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return "Record must be an object.";
+  }
+  for (const field of ["date", "category", "detail"]) {
+    if (typeof record[field] !== "string" || !record[field].trim()) {
+      return `Record ${field} must be a non-empty string.`;
+    }
+  }
+  if (record.mileage !== null && !Number.isFinite(record.mileage)) {
+    return "Record mileage must be a finite number or null.";
+  }
+  if (!Number.isFinite(record.cost)) {
+    return "Record cost must be a finite number.";
+  }
+  if (typeof record.note !== "string") {
+    return "Record note must be a string.";
+  }
+  return "";
+}
+
+function isValidStoredRecord(record) {
+  return !getStoredRecordValidationError(record);
+}
+
+function buildBackupEnvelope(sourceRecords, exportedAt = new Date().toISOString()) {
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt,
+    records: sourceRecords.map(record => ({ ...record }))
+  };
+}
+
+function validateBackupEnvelope(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return { ok: false, error: "Backup must be an object." };
+  }
+  if (candidate.format !== BACKUP_FORMAT) {
+    return { ok: false, error: "Backup format is not supported." };
+  }
+  if (candidate.version !== BACKUP_VERSION) {
+    return { ok: false, error: "Backup version is not supported." };
+  }
+  if (!Array.isArray(candidate.records)) {
+    return { ok: false, error: "Backup records must be an array." };
+  }
+
+  for (const record of candidate.records) {
+    const error = getStoredRecordValidationError(record);
+    if (error) return { ok: false, error };
+  }
+  return { ok: true, records: candidate.records.map(record => ({ ...record })) };
+}
+
+function getBackupDateRange(sourceRecords) {
+  const datedRecords = sourceRecords
+    .map(record => {
+      const date = typeof record?.date === "string" ? record.date.trim() : "";
+      const parsedDate = parseDate(date);
+      return parsedDate && formatDateYMD(parsedDate) === date ? { date } : null;
+    })
+    .filter(Boolean)
+    .sort(compareRecordsNewestFirst);
+
+  if (!datedRecords.length) return "無日期資料";
+  const newest = datedRecords[0].date;
+  const oldest = datedRecords[datedRecords.length - 1].date;
+  return newest === oldest ? newest : `${oldest} ～ ${newest}`;
+}
+
+function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
+  const getDuplicateKey = value => [value.date, value.mileage ?? "", value.category]
+    .map(part => String(part).trim())
+    .join("|");
+  const key = getDuplicateKey(record);
+  return records.filter((candidate, index) => index !== excludeIndex && getDuplicateKey(candidate) === key);
+}
+
 function formatDateYM(date) {
   if (!date || Number.isNaN(date.getTime())) return "";
   const month = String(date.getMonth() + 1).padStart(2, "0");

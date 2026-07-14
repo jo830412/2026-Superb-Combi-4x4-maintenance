@@ -73,7 +73,7 @@ function loadApp() {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, getRecords: () => records, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, getRecords: () => records, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -150,6 +150,28 @@ test("owner actions route to their forms and deleted records can be restored", (
   assert.equal(element("toastAction").textContent, "復原");
   api.restoreDeletedRecord();
   assert.deepEqual(api.getRecords(), [original]);
+});
+
+test("backup helpers validate the envelope and find only likely duplicates", () => {
+  const { api } = loadApp();
+  const original = fuelRecord();
+  const second = { ...original, date: "2026-07-13", detail: "Second record" };
+  const envelope = api.buildBackupEnvelope([original, second], "2026-07-14T00:00:00.000Z");
+
+  assert.equal(envelope.format, "superb-maintenance-backup");
+  assert.equal(envelope.version, 1);
+  assert.equal(envelope.exportedAt, "2026-07-14T00:00:00.000Z");
+  assert.notEqual(envelope.records[0], original);
+  assert.notEqual(envelope.records[1], second);
+  assert.equal(api.validateBackupEnvelope(envelope).ok, true);
+  assert.equal(api.validateBackupEnvelope({ format: "wrong", version: 1, records: [] }).ok, false);
+  assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: {} }).ok, false);
+  assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: [{ ...original, detail: "" }] }).ok, false);
+
+  api.setRecords([original]);
+  assert.equal(api.findLikelyDuplicates({ ...original }).length, 1);
+  assert.equal(api.findLikelyDuplicates({ ...original, category: "different category" }).length, 0);
+  assert.equal(api.findLikelyDuplicates({ ...original }, { excludeIndex: 0 }).length, 0);
 });
 
 test("the README documents the UI regression command and fuel editing behavior", () => {
