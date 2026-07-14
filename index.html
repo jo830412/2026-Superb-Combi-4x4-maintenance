@@ -231,6 +231,45 @@ body {
 .input-action-row .btn {
   min-height: 42px;
 }
+.app-tabs {
+  position: sticky;
+  top: 72px;
+  z-index: 90;
+  display: flex;
+  gap: 8px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+}
+.app-tab {
+  min-height: 40px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.app-tab.is-active {
+  border-color: var(--blue);
+  background: var(--blue-bg);
+  color: var(--text-primary);
+}
+.app-view[hidden] { display: none; }
+.quick-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.quick-entry-btn {
+  min-height: 88px;
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+}
 
 /* ============================================================
    Stats Cards
@@ -1151,6 +1190,16 @@ body {
     padding-bottom: 2px;
     flex-shrink: 1;
   }
+  .app-tabs {
+    top: 112px;
+    overflow-x: auto;
+    padding: 10px 16px;
+  }
+  .app-tab {
+    min-height: 44px;
+    flex: 1 0 auto;
+  }
+  .quick-entry-grid { grid-template-columns: 1fr; }
   .header-actions::-webkit-scrollbar { display: none; }
   .header-actions .btn,
   .sync-status {
@@ -1460,27 +1509,20 @@ body {
         <button class="sync-status sync-syncing" id="syncStatus" type="button" title="點擊重試同步" aria-live="polite">
           同步中
         </button>
-        <button class="btn btn-primary" id="btnAddRecord">
-          <span>＋</span> 保養/維修
-        </button>
-        <button class="btn btn-ghost" id="btnAddFuelLog">
-          <span>＋</span> 加油
-        </button>
-        <button class="btn btn-ghost" id="btnAiRecord">
-          🤖 AI 新增
-        </button>
-        <button class="btn btn-ghost" id="btnPhotoRead">
-          📷 讀照片
-        </button>
-        <button class="btn btn-ghost" id="btnUpdateMileageHeader">
-          📍 更新里程
-        </button>
-        <button class="btn btn-ghost" id="btnExport">
-          ↓ CSV
+        <button class="btn btn-primary" id="btnQuickEntry" type="button">
+          <span>＋</span> 新增
         </button>
       </div>
     </div>
   </header>
+
+  <nav class="app-tabs" aria-label="主要內容">
+    <button class="app-tab is-active" type="button" data-view="overview" aria-pressed="true">總覽</button>
+    <button class="app-tab" type="button" data-view="records" aria-pressed="false">紀錄</button>
+    <button class="app-tab" type="button" data-view="analysis" aria-pressed="false">分析</button>
+  </nav>
+  <main>
+  <div class="app-view" id="overviewView">
 
   <!-- 統計卡片區 -->
   <section class="stats-section">
@@ -1596,8 +1638,10 @@ body {
       <div class="owner-actions" id="ownerActionList"></div>
     </div>
   </section>
+  </div>
 
   <!-- 持有成本摘要 -->
+  <div class="app-view" id="analysisView" hidden>
   <section class="ownership-section">
     <div class="ownership-panel">
       <div class="ownership-header">
@@ -1633,8 +1677,10 @@ body {
       </div>
     </div>
   </section>
+  </div>
 
   <!-- 加油紀錄區 -->
+  <div class="app-view" id="recordsView" hidden>
   <section class="fuel-log-section">
     <div class="fuel-log-panel">
       <div class="fuel-log-header">
@@ -1686,6 +1732,7 @@ body {
       <select id="yearFilter" class="year-select" aria-label="年份篩選">
         <option value="">所有年份</option>
       </select>
+      <button class="btn btn-ghost" id="btnExport" type="button">↓ CSV</button>
     </div>
     <div class="filter-summary" id="filterSummary">顯示 0 筆</div>
   </section>
@@ -1698,6 +1745,8 @@ body {
       <p>找不到符合條件的紀錄</p>
     </div>
   </section>
+  </div>
+  </main>
 
   <!-- 新增/編輯 Modal -->
   <div id="modal" class="modal-overlay" style="display:none;">
@@ -1989,6 +2038,24 @@ body {
     </div>
   </div>
 
+  <div id="quickEntryModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>新增紀錄</h2>
+        <button class="modal-close" id="quickEntryModalClose" type="button" aria-label="關閉">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="quick-entry-grid">
+          <button class="btn btn-primary quick-entry-btn" type="button" data-quick-entry="fuel">⛽ 加油紀錄</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="service">🔧 保養／維修</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="mileage">📍 更新目前里程</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="photo">📷 從照片讀取</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="text">✍️ 文字快速新增</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
@@ -2056,6 +2123,7 @@ let photoParsed = null;
 let photoPreviewUrl = "";
 let aiBackendReady = null;
 let fuelEditIndex = -1;
+let activeView = "overview";
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -3994,6 +4062,45 @@ function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
   if (!editing && !skipPriceLoad) loadFuelPriceForSelectedType({ force: true });
 }
 
+function setActiveView(view) {
+  const nextView = ["overview", "records", "analysis"].includes(view) ? view : "overview";
+  activeView = nextView;
+  ["overview", "records", "analysis"].forEach(name => {
+    const panel = document.getElementById(name + "View");
+    if (panel) panel.hidden = name !== nextView;
+  });
+  document.querySelectorAll(".app-tab").forEach(button => {
+    const selected = button.dataset.view === nextView;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+function openQuickEntryMenu() {
+  document.getElementById("quickEntryModal").style.display = "flex";
+}
+
+function closeQuickEntryMenu() {
+  document.getElementById("quickEntryModal").style.display = "none";
+}
+
+function runQuickEntry(action) {
+  closeQuickEntryMenu();
+  if (action === "fuel") {
+    setActiveView("records");
+    openFuelLogModal();
+  } else if (action === "service") {
+    setActiveView("records");
+    openAddModal();
+  } else if (action === "mileage") {
+    openMileageModal();
+  } else if (action === "photo") {
+    openPhotoModal();
+  } else if (action === "text") {
+    openAiModal();
+  }
+}
+
 function closeFuelLogModal() {
   document.getElementById("fuelLogModal").style.display = "none";
   fuelEditIndex = -1;
@@ -4878,13 +4985,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // 今日初始化 (改為從雲端載入)
   initData();
 
-  // 新增按鈕
-  document.getElementById("btnAddRecord").addEventListener("click", openAddModal);
-  document.getElementById("btnAddFuelLog").addEventListener("click", openFuelLogModal);
-  document.getElementById("btnAiRecord").addEventListener("click", openAiModal);
-  document.getElementById("btnPhotoRead").addEventListener("click", openPhotoModal);
+  // 快速新增與內容切換
+  document.getElementById("btnQuickEntry").addEventListener("click", openQuickEntryMenu);
+  document.getElementById("quickEntryModalClose").addEventListener("click", closeQuickEntryMenu);
+  document.getElementById("quickEntryModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("quickEntryModal")) closeQuickEntryMenu();
+  });
+  document.querySelectorAll(".quick-entry-btn").forEach(button => {
+    button.addEventListener("click", () => runQuickEntry(button.dataset.quickEntry));
+  });
+  document.querySelectorAll(".app-tab").forEach(button => {
+    button.addEventListener("click", () => setActiveView(button.dataset.view));
+  });
   document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
-  document.getElementById("btnUpdateMileageHeader").addEventListener("click", openMileageModal);
   document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
 
   // 匯出

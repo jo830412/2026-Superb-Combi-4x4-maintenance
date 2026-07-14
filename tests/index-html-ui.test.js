@@ -121,3 +121,15 @@ test("saving an edited fuel record replaces its original record", () => {
   assert.equal(api.getRecords()[0].cost, 1008);
   assert.equal(api.getRecords()[0].note, "已修正金額");
 });
+
+test("the mobile UI provides view tabs and five quick-entry routes", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+
+  assert.match(html, /function setActiveView\(/);
+  assert.match(html, /id="overviewView"/);
+  assert.match(html, /id="recordsView"/);
+  assert.match(html, /id="analysisView"/);
+  for (const action of ["fuel", "service", "mileage", "photo", "text"]) {
+    assert.match(html, new RegExp(`data-quick-entry="${action}"`));
+  }
+});
