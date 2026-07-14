@@ -231,6 +231,64 @@ body {
 .input-action-row .btn {
   min-height: 42px;
 }
+.app-tabs {
+  position: sticky;
+  top: 72px;
+  z-index: 90;
+  display: flex;
+  gap: 8px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+}
+.app-tab {
+  min-height: 40px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.app-tab.is-active {
+  border-color: var(--blue);
+  background: var(--blue-bg);
+  color: var(--text-primary);
+}
+.app-view[hidden] { display: none; }
+.quick-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.quick-entry-btn {
+  min-height: 88px;
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+}
+.toast {
+  position: fixed;
+  z-index: 320;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+}
+.toast[hidden] { display: none; }
+.toast .btn { min-height: 40px; margin-left: auto; }
 
 /* ============================================================
    Stats Cards
@@ -441,6 +499,12 @@ body {
   font-size: 0.75rem;
   font-weight: 700;
 }
+.owner-action-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .owner-action-due .owner-action-status { color: var(--red); }
 .owner-action-soon .owner-action-status { color: var(--orange); }
 .owner-action-ok .owner-action-status { color: var(--green); }
@@ -625,6 +689,11 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+.data-management-actions {
+  display: flex;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .search-wrap {
@@ -1151,6 +1220,16 @@ body {
     padding-bottom: 2px;
     flex-shrink: 1;
   }
+  .app-tabs {
+    top: 112px;
+    overflow-x: auto;
+    padding: 10px 16px;
+  }
+  .app-tab {
+    min-height: 44px;
+    flex: 1 0 auto;
+  }
+  .quick-entry-grid { grid-template-columns: 1fr; }
   .header-actions::-webkit-scrollbar { display: none; }
   .header-actions .btn,
   .sync-status {
@@ -1224,6 +1303,9 @@ body {
   .year-select {
     min-height: 44px;
     font-size: 16px;
+  }
+  .data-management-actions .btn {
+    min-height: 44px;
   }
   .filter-pills {
     width: 100%;
@@ -1460,27 +1542,20 @@ body {
         <button class="sync-status sync-syncing" id="syncStatus" type="button" title="點擊重試同步" aria-live="polite">
           同步中
         </button>
-        <button class="btn btn-primary" id="btnAddRecord">
-          <span>＋</span> 保養/維修
-        </button>
-        <button class="btn btn-ghost" id="btnAddFuelLog">
-          <span>＋</span> 加油
-        </button>
-        <button class="btn btn-ghost" id="btnAiRecord">
-          🤖 AI 新增
-        </button>
-        <button class="btn btn-ghost" id="btnPhotoRead">
-          📷 讀照片
-        </button>
-        <button class="btn btn-ghost" id="btnUpdateMileageHeader">
-          📍 更新里程
-        </button>
-        <button class="btn btn-ghost" id="btnExport">
-          ↓ CSV
+        <button class="btn btn-primary" id="btnQuickEntry" type="button">
+          <span>＋</span> 新增
         </button>
       </div>
     </div>
   </header>
+
+  <nav class="app-tabs" aria-label="主要內容">
+    <button class="app-tab is-active" type="button" data-view="overview" aria-pressed="true">總覽</button>
+    <button class="app-tab" type="button" data-view="records" aria-pressed="false">紀錄</button>
+    <button class="app-tab" type="button" data-view="analysis" aria-pressed="false">分析</button>
+  </nav>
+  <main>
+  <div class="app-view" id="overviewView">
 
   <!-- 統計卡片區 -->
   <section class="stats-section">
@@ -1596,8 +1671,10 @@ body {
       <div class="owner-actions" id="ownerActionList"></div>
     </div>
   </section>
+  </div>
 
   <!-- 持有成本摘要 -->
+  <div class="app-view" id="analysisView" hidden>
   <section class="ownership-section">
     <div class="ownership-panel">
       <div class="ownership-header">
@@ -1633,8 +1710,10 @@ body {
       </div>
     </div>
   </section>
+  </div>
 
   <!-- 加油紀錄區 -->
+  <div class="app-view" id="recordsView" hidden>
   <section class="fuel-log-section">
     <div class="fuel-log-panel">
       <div class="fuel-log-header">
@@ -1686,6 +1765,12 @@ body {
       <select id="yearFilter" class="year-select" aria-label="年份篩選">
         <option value="">所有年份</option>
       </select>
+      <button class="btn btn-ghost" id="btnExport" type="button">↓ CSV</button>
+      <div class="data-management-actions">
+        <button class="btn btn-ghost" id="btnBackupExport" type="button">↓ 備份 JSON</button>
+        <button class="btn btn-ghost" id="btnBackupRestore" type="button">還原備份</button>
+        <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
+      </div>
     </div>
     <div class="filter-summary" id="filterSummary">顯示 0 筆</div>
   </section>
@@ -1698,6 +1783,8 @@ body {
       <p>找不到符合條件的紀錄</p>
     </div>
   </section>
+  </div>
+  </main>
 
   <!-- 新增/編輯 Modal -->
   <div id="modal" class="modal-overlay" style="display:none;">
@@ -1874,7 +1961,7 @@ body {
   <div id="fuelLogModal" class="modal-overlay" style="display:none;">
     <div class="modal">
       <div class="modal-header">
-        <h2>新增加油紀錄</h2>
+        <h2 id="fuelLogModalTitle">新增加油紀錄</h2>
         <button class="modal-close" id="fuelLogModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
@@ -1933,7 +2020,7 @@ body {
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" id="fuelLogCancelBtn">取消</button>
-            <button type="submit" class="btn btn-primary">💾 儲存加油</button>
+            <button type="submit" class="btn btn-primary" id="fuelLogSaveBtn">💾 儲存加油</button>
           </div>
         </form>
       </div>
@@ -1989,6 +2076,61 @@ body {
     </div>
   </div>
 
+  <div id="backupRestoreModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>確認還原備份</h2>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);line-height:1.6">還原會先下載目前資料的復原備份，接著以備份檔完整取代所有紀錄。</p>
+        <p id="backupRestoreSummary" style="margin-top:12px;font-weight:600"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="backupRestoreCancelBtn" type="button">取消</button>
+        <button class="btn btn-primary" id="backupRestoreConfirmBtn" type="button">確認還原</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="duplicateModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>可能重複的紀錄</h2>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary);line-height:1.6">這筆紀錄可能與下列資料重複。請確認後再儲存；你仍可選擇「仍要儲存」。</p>
+        <ul id="duplicateList" style="margin:12px 0 0;padding-left:20px;color:var(--text-secondary);line-height:1.6"></ul>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="duplicateCancelBtn" type="button">取消</button>
+        <button class="btn btn-primary" id="duplicateConfirmBtn" type="button">仍要儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="quickEntryModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>新增紀錄</h2>
+        <button class="modal-close" id="quickEntryModalClose" type="button" aria-label="關閉">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="quick-entry-grid">
+          <button class="btn btn-primary quick-entry-btn" type="button" data-quick-entry="fuel">⛽ 加油紀錄</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="service">🔧 保養／維修</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="mileage">📍 更新目前里程</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="photo">📷 從照片讀取</button>
+          <button class="btn btn-ghost quick-entry-btn" type="button" data-quick-entry="text">✍️ 文字快速新增</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status" aria-live="polite">
+    <span id="toastMessage"></span>
+    <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
@@ -2001,6 +2143,8 @@ const INITIAL_DATA = [];
 // 雲端與本地儲存管理
 // ============================================================
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
+const BACKUP_FORMAT = "superb-maintenance-backup";
+const BACKUP_VERSION = 1;
 const APP_VERSION = "v2026.07.03.1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
@@ -2055,6 +2199,13 @@ let photoMode = "fuel";
 let photoParsed = null;
 let photoPreviewUrl = "";
 let aiBackendReady = null;
+let fuelEditIndex = -1;
+let activeView = "overview";
+let deletedRecordSnapshot = null;
+let toastTimer = null;
+let pendingRestoreRecords = null;
+let pendingDuplicateSave = null;
+let backupDownloadSpy = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -2214,10 +2365,39 @@ async function syncToCloud(data) {
   }
 }
 
-function saveRecords(data) {
+function saveRecords(data, { announce = true } = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   setSyncStatus("syncing", "本機已保存，同步中");
-  syncToCloud(data); // 背景同步
+  if (announce) showToast("已儲存到本機，正在同步…", null, { routine: true });
+  syncToCloud(data).then(ok => {
+    if (announce) showToast(ok ? "已同步雲端" : "同步失敗，本機資料仍保留", null, { routine: true });
+  });
+}
+
+function hideToast() {
+  const toast = document.getElementById("toast");
+  if (toast) toast.hidden = true;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = null;
+}
+
+function showToast(message, action = null, { routine = false } = {}) {
+  const toast = document.getElementById("toast");
+  const messageEl = document.getElementById("toastMessage");
+  const actionBtn = document.getElementById("toastAction");
+  if (!toast || !messageEl || !actionBtn) return;
+  if (routine && !toast.hidden && !actionBtn.hidden) return;
+
+  if (toastTimer) clearTimeout(toastTimer);
+  messageEl.textContent = message;
+  toast.hidden = false;
+  actionBtn.hidden = !action;
+  actionBtn.textContent = action ? action.label : "";
+  actionBtn.onclick = action ? () => {
+    hideToast();
+    action.onClick();
+  } : null;
+  toastTimer = setTimeout(hideToast, action ? 7000 : 3500);
 }
 
 // ============================================================
@@ -2295,6 +2475,182 @@ function formatDateYMD(date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
+
+function getStoredRecordValidationError(record) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return "Record must be an object.";
+  }
+  for (const field of ["date", "category", "detail"]) {
+    if (typeof record[field] !== "string" || !record[field].trim()) {
+      return `Record ${field} must be a non-empty string.`;
+    }
+  }
+  if (record.mileage !== null && !Number.isFinite(record.mileage)) {
+    return "Record mileage must be a finite number or null.";
+  }
+  if (!Number.isFinite(record.cost)) {
+    return "Record cost must be a finite number.";
+  }
+  if (typeof record.note !== "string") {
+    return "Record note must be a string.";
+  }
+  return "";
+}
+
+function isValidStoredRecord(record) {
+  return !getStoredRecordValidationError(record);
+}
+
+function buildBackupEnvelope(sourceRecords, exportedAt = new Date().toISOString()) {
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt,
+    records: sourceRecords.map(record => ({ ...record }))
+  };
+}
+
+function validateBackupEnvelope(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return { ok: false, error: "Backup must be an object." };
+  }
+  if (candidate.format !== BACKUP_FORMAT) {
+    return { ok: false, error: "Backup format is not supported." };
+  }
+  if (candidate.version !== BACKUP_VERSION) {
+    return { ok: false, error: "Backup version is not supported." };
+  }
+  if (!Array.isArray(candidate.records)) {
+    return { ok: false, error: "Backup records must be an array." };
+  }
+
+  for (const record of candidate.records) {
+    const error = getStoredRecordValidationError(record);
+    if (error) return { ok: false, error };
+  }
+  return { ok: true, records: candidate.records.map(record => ({ ...record })) };
+}
+
+function getBackupDateRange(sourceRecords) {
+  const datedRecords = sourceRecords
+    .map(record => {
+      const date = typeof record?.date === "string" ? record.date.trim() : "";
+      const parsedDate = parseDate(date);
+      return parsedDate && formatDateYMD(parsedDate) === date ? { date } : null;
+    })
+    .filter(Boolean)
+    .sort(compareRecordsNewestFirst);
+
+  if (!datedRecords.length) return "無日期資料";
+  const newest = datedRecords[0].date;
+  const oldest = datedRecords[datedRecords.length - 1].date;
+  return newest === oldest ? newest : `${oldest} ～ ${newest}`;
+}
+
+function revokeObjectUrlSafely(url) {
+  if (!url) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch (error) {}
+}
+
+function downloadJsonBackup(sourceRecords, label) {
+  let url = "";
+  try {
+    const backup = JSON.stringify(buildBackupEnvelope(sourceRecords), null, 2);
+    const blob = new Blob([backup], { type: "application/json;charset=utf-8" });
+    url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `車輛保養紀錄備份_${label}_${formatDateYMD(new Date())}.json`;
+    anchor.click();
+    revokeObjectUrlSafely(url);
+    if (backupDownloadSpy) backupDownloadSpy(label);
+    return true;
+  } catch (error) {
+    revokeObjectUrlSafely(url);
+    return false;
+  }
+}
+
+function exportJsonBackup() {
+  if (!downloadJsonBackup(records, "手動備份")) {
+    showToast("備份下載失敗，請再試一次。");
+  }
+}
+
+function stageBackupRestore(fileText) {
+  try {
+    const validation = validateBackupEnvelope(JSON.parse(fileText));
+    if (!validation.ok) throw new Error(validation.error);
+
+    pendingRestoreRecords = validation.records.map(record => ({ ...record }));
+    document.getElementById("backupRestoreSummary").textContent =
+      `筆數：${pendingRestoreRecords.length} 筆／日期：${getBackupDateRange(pendingRestoreRecords)}`;
+    document.getElementById("backupRestoreModal").style.display = "flex";
+    return { ok: true };
+  } catch (error) {
+    pendingRestoreRecords = null;
+    const message = error instanceof Error ? error.message : String(error);
+    showToast("備份檔無法還原：" + message);
+    return { ok: false, error: message };
+  }
+}
+
+function closeBackupRestoreModal() {
+  pendingRestoreRecords = null;
+  document.getElementById("backupRestoreModal").style.display = "none";
+}
+
+function confirmBackupRestore() {
+  if (!pendingRestoreRecords) return;
+
+  if (!downloadJsonBackup(records, "還原前")) {
+    showToast("還原前備份下載失敗，尚未還原資料，請再試一次。");
+    return;
+  }
+  records = pendingRestoreRecords.map(record => ({ ...record }));
+  pendingRestoreRecords = null;
+  saveRecords(records, { announce: false });
+  closeBackupRestoreModal();
+  refresh();
+  showToast(`已還原 ${records.length} 筆紀錄`);
+}
+
+function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
+  const getDuplicateKey = value => [value.date, value.mileage ?? "", value.category]
+    .map(part => String(part).trim())
+    .join("|");
+  const key = getDuplicateKey(record);
+  return records.filter((candidate, index) => index !== excludeIndex && getDuplicateKey(candidate) === key);
+}
+
+function requestRecordSave(record, { editIndex = -1, commit }) {
+  const candidates = findLikelyDuplicates(record, { excludeIndex: editIndex });
+  if (!candidates.length) {
+    commit();
+    return;
+  }
+
+  pendingDuplicateSave = commit;
+  document.getElementById("duplicateList").innerHTML = candidates.map(candidate => `
+    <li>${escapeHtml(candidate.date)} · ${escapeHtml(candidate.mileage ?? "—")} km · ${escapeHtml(candidate.category)}</li>
+  `).join("");
+  document.getElementById("duplicateModal").style.display = "flex";
+}
+
+function closeDuplicateModal() {
+  pendingDuplicateSave = null;
+  document.getElementById("duplicateModal").style.display = "none";
+}
+
+function confirmDuplicateSave() {
+  const commit = pendingDuplicateSave;
+  pendingDuplicateSave = null;
+  closeDuplicateModal();
+  if (commit) commit();
+}
+
 function formatDateYM(date) {
   if (!date || Number.isNaN(date.getTime())) return "";
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -3032,7 +3388,9 @@ function buildOwnerActions() {
       status: "info",
       name: "更新目前里程",
       statusText: "建議",
-      meta: "里程是保養、耗材與油耗追蹤的基準。"
+      meta: "里程是保養、耗材與油耗追蹤的基準。",
+      action: "mileage",
+      actionLabel: "更新里程"
     });
   }
   actions.push(maintenance);
@@ -3067,7 +3425,9 @@ function buildOwnerActions() {
       status: "info",
       name: "建立第一筆加油紀錄",
       statusText: "油耗基準",
-      meta: "連續兩次加滿後會開始計算平均與最近油耗。"
+      meta: "連續兩次加滿後會開始計算平均與最近油耗。",
+      action: "fuel",
+      actionLabel: "新增加油"
     });
   }
 
@@ -3131,11 +3491,27 @@ function renderOwnerDashboard() {
     <div class="owner-action owner-action-${escapeHtml(action.status)}">
       <div class="owner-action-top">
         <div class="owner-action-name">${escapeHtml(action.name)}</div>
-        <div class="owner-action-status">${escapeHtml(action.statusText)}</div>
+        <div class="owner-action-control">
+          <div class="owner-action-status">${escapeHtml(action.statusText)}</div>
+          ${action.action ? `<button class="btn btn-ghost btn-sm" type="button" data-owner-action="${escapeHtml(action.action)}">${escapeHtml(action.actionLabel)}</button>` : ""}
+        </div>
       </div>
       <div class="owner-action-meta">${escapeHtml(action.meta || "")}</div>
     </div>
   `).join("");
+
+  list.querySelectorAll("[data-owner-action]").forEach(button => {
+    button.addEventListener("click", () => runOwnerAction(button.dataset.ownerAction));
+  });
+}
+
+function runOwnerAction(action) {
+  if (action === "mileage") {
+    openMileageModal();
+  } else if (action === "fuel") {
+    setActiveView("records");
+    openFuelLogModal();
+  }
 }
 
 function getOwnershipCostBuckets() {
@@ -3597,6 +3973,10 @@ function openAddModal() {
 
 function openEditModal(idx) {
   const r = records[idx];
+  if (isFuelLogRecord(r)) {
+    openFuelLogModal({ editIndex: idx });
+    return;
+  }
   document.getElementById("modalTitle").textContent = "編輯紀錄";
   document.getElementById("editIndex").value = idx;
   document.getElementById("formDate").value = r.date || "";
@@ -3962,26 +4342,75 @@ function closeMileageModal() {
   clearMileageMessage();
 }
 
-function openFuelLogModal({ skipPriceLoad = false } = {}) {
+function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
+  const editing = Number.isInteger(editIndex) && editIndex >= 0 && isFuelLogRecord(records[editIndex]);
+  const record = editing ? records[editIndex] : null;
+  const parsed = editing ? parseFuelLog(record, editIndex) : null;
   const currentMileage = getCurrentMileage();
-  document.getElementById("fuelLogDateInput").value = getTodayString();
-  document.getElementById("fuelLogMileageInput").value = currentMileage || "";
-  document.getElementById("fuelLogLitersInput").value = "";
-  document.getElementById("fuelLogUnitPriceInput").value = "";
-  document.getElementById("fuelLogDiscountInput").value = String(DEFAULT_FUEL_DISCOUNT);
-  document.getElementById("fuelLogCostInput").value = "";
+  fuelEditIndex = editing ? editIndex : -1;
+  document.getElementById("fuelLogModalTitle").textContent = editing ? "編輯加油紀錄" : "新增加油紀錄";
+  document.getElementById("fuelLogSaveBtn").textContent = editing ? "💾 儲存變更" : "💾 儲存加油";
+  document.getElementById("fuelLogDateInput").value = editing ? (record.date || getTodayString()) : getTodayString();
+  document.getElementById("fuelLogMileageInput").value = editing ? (record.mileage || "") : (currentMileage || "");
+  document.getElementById("fuelLogLitersInput").value = parsed ? parsed.liters.toFixed(2) : "";
+  document.getElementById("fuelLogUnitPriceInput").value = Number.isFinite(parsed?.unitPrice) ? parsed.unitPrice.toFixed(1) : "";
+  document.getElementById("fuelLogDiscountInput").value = Number.isFinite(parsed?.discount) ? parsed.discount.toFixed(1) : String(DEFAULT_FUEL_DISCOUNT);
+  document.getElementById("fuelLogCostInput").value = editing ? (record.cost || "") : "";
   document.getElementById("fuelLogNetPriceHint").textContent = "輸入加油量與油價後會自動試算，實際付款金額可直接修改。";
-  document.getElementById("fuelLogTypeInput").value = DEFAULT_FUEL_TYPE;
-  document.getElementById("fuelLogFullTankInput").value = "yes";
-  document.getElementById("fuelLogNoteInput").value = "全國加油站自助";
-  setFuelPriceStatus("預設 98，會嘗試抓取全國加油站今日牌價。");
+  document.getElementById("fuelLogTypeInput").value = ["92", "95", "98", "其他"].includes(parsed?.fuelType) ? parsed.fuelType : DEFAULT_FUEL_TYPE;
+  document.getElementById("fuelLogFullTankInput").value = parsed?.fullTank === false ? "no" : "yes";
+  document.getElementById("fuelLogNoteInput").value = editing ? (record.note || "") : "全國加油站自助";
+  setFuelPriceStatus(editing ? "已帶入原加油資料；修改後會重新試算金額。" : "預設 98，會嘗試抓取全國加油站今日牌價。");
   clearFuelLogMessage();
+  const saveBtn = document.querySelector("#fuelLogForm button[type='submit']");
+  if (saveBtn) delete saveBtn.dataset.confirmedMileage;
   document.getElementById("fuelLogModal").style.display = "flex";
-  if (!skipPriceLoad) loadFuelPriceForSelectedType({ force: true });
+  updateFuelLogCostFromDiscount({ preserveCostInput: editing });
+  if (!editing && !skipPriceLoad) loadFuelPriceForSelectedType({ force: true });
+}
+
+function setActiveView(view) {
+  const nextView = ["overview", "records", "analysis"].includes(view) ? view : "overview";
+  activeView = nextView;
+  ["overview", "records", "analysis"].forEach(name => {
+    const panel = document.getElementById(name + "View");
+    if (panel) panel.hidden = name !== nextView;
+  });
+  document.querySelectorAll(".app-tab").forEach(button => {
+    const selected = button.dataset.view === nextView;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+function openQuickEntryMenu() {
+  document.getElementById("quickEntryModal").style.display = "flex";
+}
+
+function closeQuickEntryMenu() {
+  document.getElementById("quickEntryModal").style.display = "none";
+}
+
+function runQuickEntry(action) {
+  closeQuickEntryMenu();
+  if (action === "fuel") {
+    setActiveView("records");
+    openFuelLogModal();
+  } else if (action === "service") {
+    setActiveView("records");
+    openAddModal();
+  } else if (action === "mileage") {
+    openMileageModal();
+  } else if (action === "photo") {
+    openPhotoModal();
+  } else if (action === "text") {
+    openAiModal();
+  }
 }
 
 function closeFuelLogModal() {
   document.getElementById("fuelLogModal").style.display = "none";
+  fuelEditIndex = -1;
   clearFuelLogMessage();
 }
 
@@ -4589,7 +5018,7 @@ function handleFuelLogSubmit(e) {
   const fuelType = document.getElementById("fuelLogTypeInput").value;
   const fullTank = document.getElementById("fuelLogFullTankInput").value === "yes";
   const note = document.getElementById("fuelLogNoteInput").value.trim();
-  const maxMileage = getCurrentMileage();
+  const maxMileage = fuelEditIndex >= 0 ? getMaxMileage(fuelEditIndex) : getCurrentMileage();
   const saveBtn = e.submitter || document.querySelector("#fuelLogForm button[type='submit']");
 
   if (!date) {
@@ -4621,7 +5050,7 @@ function handleFuelLogSubmit(e) {
     return;
   }
 
-  records.push({
+  const record = {
     date,
     mileage,
     category: "加油",
@@ -4641,11 +5070,17 @@ function handleFuelLogSubmit(e) {
     ].filter(Boolean).join("｜"),
     cost,
     note
+  };
+  requestRecordSave(record, {
+    editIndex: fuelEditIndex,
+    commit: () => {
+      if (fuelEditIndex >= 0) records[fuelEditIndex] = record;
+      else records.push(record);
+      saveRecords(records);
+      closeFuelLogModal();
+      refresh();
+    }
   });
-
-  saveRecords(records);
-  closeFuelLogModal();
-  refresh();
 }
 
 function handleFuelSubmit(e) {
@@ -4726,15 +5161,16 @@ function handleFormSubmit(e) {
     return;
   }
 
-  if (idx === -1) {
-    records.push(rec);
-  } else {
-    records[idx] = rec;
-  }
-
-  saveRecords(records);
-  closeModal();
-  refresh();
+  requestRecordSave(rec, {
+    editIndex: idx,
+    commit: () => {
+      if (idx === -1) records.push(rec);
+      else records[idx] = rec;
+      saveRecords(records);
+      closeModal();
+      refresh();
+    }
+  });
 }
 
 // ============================================================
@@ -4750,10 +5186,24 @@ function closeDeleteModal() {
 }
 function handleDeleteConfirm() {
   if (deleteTargetIndex < 0) return;
-  records.splice(deleteTargetIndex, 1);
-  saveRecords(records);
+  const index = deleteTargetIndex;
+  const [record] = records.splice(index, 1);
+  if (!record) return;
+  deletedRecordSnapshot = { record, index };
+  saveRecords(records, { announce: false });
   closeDeleteModal();
   refresh();
+  showToast("已刪除紀錄", { label: "復原", onClick: restoreDeletedRecord });
+}
+
+function restoreDeletedRecord() {
+  if (!deletedRecordSnapshot) return;
+  const { record, index } = deletedRecordSnapshot;
+  records.splice(Math.min(index, records.length), 0, record);
+  deletedRecordSnapshot = null;
+  saveRecords(records, { announce: false });
+  refresh();
+  showToast("已復原紀錄");
 }
 
 // ============================================================
@@ -4858,17 +5308,49 @@ document.addEventListener("DOMContentLoaded", () => {
   // 今日初始化 (改為從雲端載入)
   initData();
 
-  // 新增按鈕
-  document.getElementById("btnAddRecord").addEventListener("click", openAddModal);
-  document.getElementById("btnAddFuelLog").addEventListener("click", openFuelLogModal);
-  document.getElementById("btnAiRecord").addEventListener("click", openAiModal);
-  document.getElementById("btnPhotoRead").addEventListener("click", openPhotoModal);
+  // 快速新增與內容切換
+  document.getElementById("btnQuickEntry").addEventListener("click", openQuickEntryMenu);
+  document.getElementById("quickEntryModalClose").addEventListener("click", closeQuickEntryMenu);
+  document.getElementById("quickEntryModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("quickEntryModal")) closeQuickEntryMenu();
+  });
+  document.querySelectorAll(".quick-entry-btn").forEach(button => {
+    button.addEventListener("click", () => runQuickEntry(button.dataset.quickEntry));
+  });
+  document.querySelectorAll(".app-tab").forEach(button => {
+    button.addEventListener("click", () => setActiveView(button.dataset.view));
+  });
   document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
-  document.getElementById("btnUpdateMileageHeader").addEventListener("click", openMileageModal);
   document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
 
   // 匯出
   document.getElementById("btnExport").addEventListener("click", exportCSV);
+  document.getElementById("btnBackupExport").addEventListener("click", exportJsonBackup);
+  document.getElementById("btnBackupRestore").addEventListener("click", () => document.getElementById("backupRestoreInput").click());
+  document.getElementById("backupRestoreInput").addEventListener("change", async event => {
+    const input = event.target;
+    const file = input.files?.[0];
+    try {
+      if (!file) return;
+      stageBackupRestore(await file.text());
+    } catch (error) {
+      pendingRestoreRecords = null;
+      showToast("備份檔無法還原：" + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      input.value = "";
+    }
+  });
+  document.getElementById("backupRestoreCancelBtn").addEventListener("click", closeBackupRestoreModal);
+  document.getElementById("backupRestoreConfirmBtn").addEventListener("click", confirmBackupRestore);
+  document.getElementById("backupRestoreModal").addEventListener("click", event => {
+    if (event.target === document.getElementById("backupRestoreModal")) closeBackupRestoreModal();
+  });
+
+  document.getElementById("duplicateCancelBtn").addEventListener("click", closeDuplicateModal);
+  document.getElementById("duplicateConfirmBtn").addEventListener("click", confirmDuplicateSave);
+  document.getElementById("duplicateModal").addEventListener("click", event => {
+    if (event.target === document.getElementById("duplicateModal")) closeDuplicateModal();
+  });
 
   // 同步狀態重試
   document.getElementById("syncStatus").addEventListener("click", () => syncToCloud(records));
