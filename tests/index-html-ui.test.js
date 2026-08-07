@@ -32,7 +32,7 @@ function createElement() {
   };
 }
 
-function loadApp({ fetchImpl, urlApi } = {}) {
+function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   const script = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)]
     .map(match => match[1])
@@ -54,11 +54,12 @@ function loadApp({ fetchImpl, urlApi } = {}) {
     Number,
     RegExp,
     String,
+    TextEncoder,
     URL: urlApi || { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
     console,
     document: {
       addEventListener() {},
-      createElement() { return createElement(); },
+      createElement(tag) { return createElementImpl ? createElementImpl(tag) : createElement(); },
       getElementById: getElement,
       querySelector() { return createElement(); },
       querySelectorAll() { return []; }
@@ -74,7 +75,7 @@ function loadApp({ fetchImpl, urlApi } = {}) {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -172,6 +173,32 @@ test("the mobile UI provides view tabs and five quick-entry routes", () => {
   for (const action of ["fuel", "service", "mileage", "photo", "text"]) {
     assert.match(html, new RegExp(`data-quick-entry="${action}"`));
   }
+});
+
+test("the focused overview exposes four primary surfaces in order", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const ids = ["dashboardHero", "dashboardMetrics", "dashboardTasks", "overviewRecentRecords"];
+  const positions = ids.map(id => html.indexOf(`id="${id}"`));
+
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions);
+  assert.match(html, /id="moreVehicleStatus"/);
+});
+
+test("the overview recent preview renders at most three records", () => {
+  const { api, element } = loadApp();
+  api.setRecords([0, 1, 2, 3].map(day => ({
+    date: `2026-08-0${day + 1}`,
+    mileage: 1000 + day,
+    category: "保養",
+    cost: 100,
+    detail: `紀錄 ${day}`,
+    note: ""
+  })));
+
+  assert.equal(typeof api.renderOverviewRecentRecords, "function");
+  api.renderOverviewRecentRecords();
+  assert.equal((element("overviewRecentRecords").innerHTML.match(/class="overview-record"/g) || []).length, 3);
 });
 
 test("owner actions route to their forms and deleted records can be restored", () => {

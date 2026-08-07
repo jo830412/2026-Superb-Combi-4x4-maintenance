@@ -1105,6 +1105,147 @@ body {
 /* ============================================================
    Responsive
    ============================================================ */
+/* Focused daily dashboard */
+.dashboard-hero,
+.dashboard-metrics,
+.overview-recent-section,
+.more-status {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(250px, 0.65fr);
+  gap: 18px;
+  margin-top: 28px;
+  padding: 24px;
+  border: 1px solid rgba(88,166,255,0.32);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(88,166,255,0.15), rgba(63,185,80,0.06) 58%, var(--bg-card));
+  box-shadow: var(--shadow-md);
+}
+.dashboard-hero-mileage,
+.dashboard-next-service {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+}
+.dashboard-hero-mileage > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.dashboard-hero-mileage strong {
+  color: var(--text-primary);
+  font-size: clamp(2.4rem, 7vw, 4.7rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+.dashboard-hero-mileage span:not(.dashboard-eyebrow) {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+.dashboard-next-service {
+  padding: 18px 20px;
+  border-left: 1px solid var(--border);
+}
+.dashboard-next-service > span,
+.dashboard-metric-card > span,
+.dashboard-eyebrow {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.dashboard-next-service strong {
+  margin: 7px 0;
+  color: var(--orange);
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+.dashboard-next-service small,
+.dashboard-metric-card small {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.dashboard-metric-card {
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+.dashboard-metric-card > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+}
+.dashboard-metric-card strong {
+  color: var(--text-primary);
+  font-size: 1.65rem;
+}
+.overview-recent-section,
+.more-status {
+  margin-top: 18px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.section-heading h2 { margin-top: 3px; font-size: 1.15rem; }
+.overview-recent-list { display: grid; gap: 8px; }
+.overview-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.overview-record:hover { border-color: var(--border-focus); }
+.overview-record > span:first-child { display: grid; min-width: 0; }
+.overview-record strong { font-size: 0.9rem; }
+.overview-record small,
+.overview-record > span:last-child,
+.empty-compact { color: var(--text-secondary); font-size: 0.82rem; }
+.overview-record small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.more-status { padding: 0; overflow: hidden; }
+.more-status > summary {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 20px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.more-status .stats-grid-secondary { padding: 0 20px 20px; }
+
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .charts-grid { grid-template-columns: 1fr; }
@@ -1250,6 +1391,32 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .dashboard-hero,
+  .dashboard-metrics,
+  .overview-recent-section,
+  .more-status {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+  .dashboard-hero {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 20px;
+  }
+  .dashboard-next-service {
+    padding: 14px 0 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .dashboard-hero-mileage .btn,
+  .section-heading .btn,
+  .overview-record,
+  .more-status > summary { min-height: 44px; }
+  .dashboard-metrics { gap: 10px; }
+  .dashboard-metric-card { padding: 14px; }
+  .dashboard-metric-card strong { font-size: 1.35rem; }
+  .overview-recent-section { padding: 18px; }
   .stats-section {
     margin-top: 18px;
   }
@@ -1557,120 +1724,64 @@ body {
   <main>
   <div class="app-view" id="overviewView">
 
-  <!-- 統計卡片區 -->
-  <section class="stats-section">
-    <div class="stats-grid">
-      <div class="stat-card stat-purple">
-        <div class="stat-icon">📍</div>
-        <div class="stat-content">
-          <div class="stat-topline">
-            <div class="stat-value" id="statCurrentMileage">—</div>
-            <button class="btn btn-ghost btn-sm stat-action" id="btnUpdateMileage" type="button">更新</button>
-          </div>
-          <div class="stat-label">目前里程 (km)</div>
-        </div>
-      </div>
-      <div class="stat-card stat-orange">
-        <div class="stat-icon">⏱</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statNextMaintenance">—</div>
-          <div class="stat-label">下次保養建議</div>
-        </div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">⛽</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statAvgFuel">—</div>
-          <div class="stat-label">平均油耗 km/L</div>
-        </div>
-      </div>
-      <div class="stat-card stat-green">
-        <div class="stat-icon">⛽</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statLastFuel">—</div>
-          <div class="stat-label">最近油耗 km/L</div>
-        </div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">🛡</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statWarrantyStart">—</div>
-          <div class="stat-label">保固期限</div>
-        </div>
-      </div>
-      <div class="stat-card stat-orange">
-        <div class="stat-icon">🔧</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statLastMaintenance">—</div>
-          <div class="stat-label">上次保養</div>
-        </div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">🧾</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statRecentCost">—</div>
-          <div class="stat-label">近 12 月花費</div>
-        </div>
-      </div>
-      <div class="stat-card stat-green">
-        <div class="stat-icon">💰</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statTotalCost">—</div>
-          <div class="stat-label">總花費 (NT$)</div>
-        </div>
-      </div>
-      <div class="stat-card stat-green">
-        <div class="stat-icon">/km</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statCostPerKm">—</div>
-          <div class="stat-label">每公里持有成本</div>
-        </div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">🧪</div>
-        <div class="stat-content">
-          <div class="stat-topline">
-            <div class="stat-value" id="statFuelAdditive">—</div>
-            <button class="btn btn-ghost btn-sm stat-action" id="btnAddFuelAdditive" type="button">已添加</button>
-          </div>
-          <div class="stat-label" id="statFuelAdditiveLabel">汽油精追蹤</div>
-        </div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-icon">📊</div>
-        <div class="stat-content">
-          <div class="stat-value" id="statTotalRecords">—</div>
-          <div class="stat-label">總紀錄筆數</div>
-        </div>
-      </div>
+  <section class="dashboard-hero" id="dashboardHero">
+    <div class="dashboard-hero-mileage">
+      <span class="dashboard-eyebrow">目前里程</span>
+      <div><strong id="statCurrentMileage">—</strong><span>km</span></div>
+      <button class="btn btn-ghost btn-sm" id="btnUpdateMileage" type="button">更新里程</button>
+    </div>
+    <div class="dashboard-next-service">
+      <span>下次保養建議</span>
+      <strong id="statNextMaintenance">—</strong>
+      <small>依目前保養紀錄推估</small>
     </div>
   </section>
 
-  <!-- 車主待辦摘要 -->
-  <section class="owner-section">
+  <section class="dashboard-metrics" id="dashboardMetrics" aria-label="近期車況摘要">
+    <article class="dashboard-metric-card">
+      <span>最近油耗</span>
+      <div><strong id="statLastFuel">—</strong><small>km/L</small></div>
+    </article>
+    <article class="dashboard-metric-card">
+      <span>近 12 月花費</span>
+      <div><strong id="statRecentCost">—</strong><small>NT$</small></div>
+    </article>
+  </section>
+
+  <section class="owner-section" id="dashboardTasks">
     <div class="owner-panel">
       <div class="owner-overview">
-        <div class="owner-kicker">車主待辦</div>
+        <div class="owner-kicker">接下來要處理</div>
         <div class="owner-title" id="ownerPriorityTitle">正在整理車況</div>
-        <div class="owner-sub" id="ownerPriorityMeta">依照目前里程、保養紀錄、耗材、稅費與保固期限排序。</div>
-        <div class="owner-metrics">
-          <div class="owner-metric">
-            <div class="owner-metric-label">年度固定費</div>
-            <div class="owner-metric-value" id="ownerFixedCost">—</div>
-          </div>
-          <div class="owner-metric">
-            <div class="owner-metric-label">下個法定項目</div>
-            <div class="owner-metric-value" id="ownerNextLegal">—</div>
-          </div>
-          <div class="owner-metric">
-            <div class="owner-metric-label">資料完整度</div>
-            <div class="owner-metric-value" id="ownerDataHealth">—</div>
-          </div>
-        </div>
+        <div class="owner-sub" id="ownerPriorityMeta">依照目前里程與期限排序。</div>
       </div>
       <div class="owner-actions" id="ownerActionList"></div>
     </div>
   </section>
+
+  <section class="overview-recent-section">
+    <div class="section-heading">
+      <div><span class="dashboard-eyebrow">最近動態</span><h2>最近紀錄</h2></div>
+      <button class="btn btn-ghost btn-sm" type="button" data-overview-action="records">查看全部</button>
+    </div>
+    <div class="overview-recent-list" id="overviewRecentRecords"></div>
+  </section>
+
+  <details class="more-status" id="moreVehicleStatus">
+    <summary>更多車況</summary>
+    <div class="stats-grid stats-grid-secondary">
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statAvgFuel">—</div><div class="stat-label">平均油耗 km/L</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statWarrantyStart">—</div><div class="stat-label">保固期限</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statLastMaintenance">—</div><div class="stat-label">上次保養</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statTotalCost">—</div><div class="stat-label">總花費 NT$</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statCostPerKm">—</div><div class="stat-label">每公里持有成本</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-topline"><div class="stat-value" id="statFuelAdditive">—</div><button class="btn btn-ghost btn-sm stat-action" id="btnAddFuelAdditive" type="button">已添加</button></div><div class="stat-label" id="statFuelAdditiveLabel">汽油精追蹤</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statTotalRecords">—</div><div class="stat-label">總紀錄筆數</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="ownerFixedCost">—</div><div class="stat-label">年度固定費</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="ownerNextLegal">—</div><div class="stat-label">下個法定項目</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="ownerDataHealth">—</div><div class="stat-label">資料完整度</div></div></div>
+    </div>
+  </details>
   </div>
 
   <!-- 持有成本摘要 -->
@@ -3465,7 +3576,7 @@ function renderOwnerDashboard() {
   const list = document.getElementById("ownerActionList");
   if (!title || !meta || !fixedCost || !nextLegalEl || !dataHealth || !list) return;
 
-  const actions = buildOwnerActions();
+  const actions = buildOwnerActions().slice(0, 3);
   const urgentCount = actions.filter(action => action.status === "due").length;
   const soonCount = actions.filter(action => action.status === "soon").length;
   const missingCount = actions.filter(action => action.status === "missing").length;
@@ -3502,6 +3613,26 @@ function renderOwnerDashboard() {
 
   list.querySelectorAll("[data-owner-action]").forEach(button => {
     button.addEventListener("click", () => runOwnerAction(button.dataset.ownerAction));
+  });
+}
+
+function renderOverviewRecentRecords() {
+  const container = document.getElementById("overviewRecentRecords");
+  if (!container) return;
+
+  const recent = [...records].sort(compareRecordsNewestFirst).slice(0, 3);
+  container.innerHTML = recent.length ? recent.map(record => `
+    <button class="overview-record" type="button" data-overview-record-index="${records.indexOf(record)}">
+      <span>
+        <strong>${escapeHtml(isMileageUpdateRecord(record) ? "里程狀態" : (record.category || "其他"))}</strong>
+        <small>${escapeHtml(record.detail || "未填詳細內容")}</small>
+      </span>
+      <span>${escapeHtml(record.date || "未填日期")}</span>
+    </button>
+  `).join("") : `<div class="empty-compact">尚無紀錄，先新增第一筆資料。</div>`;
+
+  container.querySelectorAll("[data-overview-record-index]").forEach(button => {
+    button.addEventListener("click", () => openEditModal(Number(button.dataset.overviewRecordIndex)));
   });
 }
 
@@ -5290,6 +5421,7 @@ function renderFuelLogSection() {
 function refresh() {
   updateStats();
   renderOwnerDashboard();
+  renderOverviewRecentRecords();
   renderOwnershipCostPanel();
   renderConsumableTrackers();
   renderFuelLogSection();
@@ -5319,6 +5451,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll(".app-tab").forEach(button => {
     button.addEventListener("click", () => setActiveView(button.dataset.view));
+  });
+  document.querySelectorAll("[data-overview-action='records']").forEach(button => {
+    button.addEventListener("click", () => setActiveView("records"));
   });
   document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
   document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
