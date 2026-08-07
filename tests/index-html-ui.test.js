@@ -58,6 +58,7 @@ function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
     URL: urlApi || { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
     console,
     document: {
+      activeElement: null,
       addEventListener() {},
       createElement(tag) { return createElementImpl ? createElementImpl(tag) : createElement(); },
       getElementById: getElement,
@@ -75,7 +76,7 @@ function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, updateStats: typeof updateStats === "function" ? updateStats : null, buildOwnerActions: typeof buildOwnerActions === "function" ? buildOwnerActions : null, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, updateFilterSummary: typeof updateFilterSummary === "function" ? updateFilterSummary : null, trapModalFocus: typeof trapModalFocus === "function" ? trapModalFocus : null, openQuickEntryMenu: typeof openQuickEntryMenu === "function" ? openQuickEntryMenu : null, closeQuickEntryMenu: typeof closeQuickEntryMenu === "function" ? closeQuickEntryMenu : null, setDocumentActiveElement: value => { document.activeElement = value; }, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -175,6 +176,11 @@ test("the mobile UI provides view tabs and five quick-entry routes", () => {
   }
 });
 
+test("the static site provides an inline favicon", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  assert.match(html, /rel="icon"[^>]*href="data:image\/svg\+xml/);
+});
+
 test("the focused overview exposes four primary surfaces in order", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   const ids = ["dashboardHero", "dashboardMetrics", "dashboardTasks", "overviewRecentRecords"];
@@ -183,6 +189,30 @@ test("the focused overview exposes four primary surfaces in order", () => {
   assert.ok(positions.every(position => position >= 0));
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
   assert.match(html, /id="moreVehicleStatus"/);
+});
+
+test("the next-service hero uses the delivery baseline before the first service", () => {
+  const { api, element } = loadApp();
+  api.setRecords([]);
+
+  api.updateStats();
+
+  assert.equal(element("statNextMaintenance").textContent, "剩 10,000 km · 2027-05-28");
+});
+
+test("a normal maintenance schedule remains an actionable dated task", () => {
+  const { api } = loadApp();
+  api.setRecords([
+    fuelRecord(),
+    { date: "2026-08-07", mileage: 3249, category: "其他", cost: 0, detail: "目前里程更新", note: "" },
+    { date: "2026-04-01", mileage: 0, category: "檢驗/稅費", cost: 11230, detail: "使用牌照稅", note: "" },
+    { date: "2026-07-01", mileage: 0, category: "檢驗/稅費", cost: 6180, detail: "公路養管費", note: "" }
+  ]);
+
+  const first = api.buildOwnerActions()[0];
+
+  assert.equal(first.name, "下次定期保養");
+  assert.equal(api.getCalendarTask(first).date, "2027-05-28");
 });
 
 test("the overview recent preview renders at most three records", () => {
@@ -211,6 +241,11 @@ test("record subtabs keep fuel analysis out of the all-records panel", () => {
   assert.match(html, /id="fuelAnalysisPanel"[^>]*hidden/);
 });
 
+test("the hidden attribute always removes inactive UI from layout", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
+});
+
 test("the mileage subtab filters to mileage status records without clearing search", () => {
   const { api, element } = loadApp();
   api.setRecords([fuelRecord(), {
@@ -229,6 +264,43 @@ test("the mileage subtab filters to mileage status records without clearing sear
   assert.equal(api.getFilteredRecords().length, 1);
   assert.equal(api.getFilteredRecords()[0].detail, "目前里程更新");
   assert.equal(element("searchInput").value, "");
+  assert.equal(element("filterSummary").textContent, "顯示 1 筆里程紀錄");
+});
+
+test("bottom sheets trap tab focus and quick entry returns focus to its invoker", () => {
+  const { api, element } = loadApp();
+  const invoker = { focused: false, focus() { this.focused = true; } };
+  const first = { disabled: false, hidden: false, tabIndex: 0, focused: false, focus() { this.focused = true; } };
+  const last = { disabled: false, hidden: false, tabIndex: 0, focused: false, focus() { this.focused = true; } };
+  const modal = element("quickEntryModal");
+  modal.querySelectorAll = () => [first, last];
+
+  api.setDocumentActiveElement(invoker);
+  api.openQuickEntryMenu();
+  assert.equal(first.focused, true);
+
+  api.setDocumentActiveElement(last);
+  let prevented = false;
+  api.trapModalFocus({ key: "Tab", shiftKey: false, preventDefault() { prevented = true; } }, modal);
+  assert.equal(prevented, true);
+  assert.equal(first.focused, true);
+
+  api.closeQuickEntryMenu();
+  assert.equal(invoker.focused, true);
+});
+
+test("fuel analysis hides irrelevant record filters without clearing their values", () => {
+  const { api, element } = loadApp();
+  element("searchInput").value = "保險";
+
+  api.setRecordsSubtab("fuel");
+
+  assert.equal(element("recordFilterControls").hidden, true);
+  assert.equal(element("filterSummary").hidden, true);
+  api.setRecordsSubtab("all");
+  assert.equal(element("recordFilterControls").hidden, false);
+  assert.equal(element("filterSummary").hidden, false);
+  assert.equal(element("searchInput").value, "保險");
 });
 
 test("quick entry prioritizes fuel and service with accessible mobile controls", () => {

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>🚗 2026 Superb Combi 4x4 保養維修紀錄</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2358a6ff'/%3E%3Cpath d='M14 38h36l-4-12H18zM18 38v8m28-8v8M21 46h5m12 0h5' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet" />
   <style>
@@ -47,6 +48,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 
 body {
   font-family: 'Noto Sans TC', 'Inter', sans-serif;
@@ -1834,7 +1836,7 @@ body {
           <h1 class="logo-title">2026 Superb Combi 4x4 保養維修紀錄</h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.07.01.4</span>
+            <span class="version-badge" id="appVersion">v2026.08.07.1</span>
           </div>
         </div>
       </div>
@@ -1959,7 +1961,7 @@ body {
   <div class="app-view" id="recordsView" hidden>
   <!-- 篩選 & 搜尋列 -->
   <section class="filter-section">
-    <div class="filter-bar">
+    <div class="filter-bar" id="recordFilterControls">
       <div class="search-wrap">
         <span class="search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg></span>
         <input type="text" id="searchInput" class="search-input" placeholder="搜尋紀錄內容..." aria-label="搜尋紀錄內容"/>
@@ -2412,7 +2414,7 @@ const INITIAL_DATA = [];
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.07.03.1";
+const APP_VERSION = "v2026.08.07.1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
@@ -2477,6 +2479,7 @@ let backupDownloadSpy = null;
 let pendingCalendarTask = null;
 let renderedOwnerActions = [];
 let calendarReminderInvoker = null;
+let quickEntryInvoker = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -3348,14 +3351,16 @@ function updateStats() {
     : "—";
 
   const nextMaintEl = document.getElementById("statNextMaintenance");
-  const lastMaintMileage = lastMaint ? Number(lastMaint.mileage) : null;
-  if (lastMaint && Number.isFinite(lastMaintMileage) && lastMaintMileage > 0) {
-    nextMaintEl.textContent = (lastMaintMileage + MAINTENANCE_INTERVAL_KM).toLocaleString("zh-TW") + " km";
-  } else if (lastMaint && parseDate(lastMaint.date)) {
-    nextMaintEl.textContent = formatDateYM(addMonths(parseDate(lastMaint.date), MAINTENANCE_INTERVAL_MONTHS));
-  } else {
-    nextMaintEl.textContent = "—";
+  const maintenanceSchedule = getMaintenanceCalendarSchedule();
+  const nextMaintenanceParts = [];
+  if (Number.isFinite(maintenanceSchedule.dueMileage)) {
+    const remainingKm = Math.max(maintenanceSchedule.dueMileage - maxMile, 0);
+    nextMaintenanceParts.push(remainingKm > 0 ? `剩 ${remainingKm.toLocaleString("zh-TW")} km` : "已達里程");
   }
+  if (maintenanceSchedule.dueDate) {
+    nextMaintenanceParts.push(formatDateYMD(maintenanceSchedule.dueDate));
+  }
+  nextMaintEl.textContent = nextMaintenanceParts.join(" · ") || "—";
 
   const fuelAdditiveEl = document.getElementById("statFuelAdditive");
   const fuelAdditiveLabel = document.getElementById("statFuelAdditiveLabel");
@@ -3767,6 +3772,29 @@ function openCalendarReminder(task, invoker = null) {
   document.getElementById("calendarReminderConfirmBtn")?.focus();
 }
 
+function getModalFocusableElements(modal) {
+  if (!modal?.querySelectorAll) return [];
+  return [...modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter(element => !element.disabled && !element.hidden && element.getAttribute?.("aria-hidden") !== "true");
+}
+
+function trapModalFocus(event, modal) {
+  if (event.key !== "Tab") return;
+  const focusable = getModalFocusableElements(modal);
+  if (!focusable.length) return;
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const current = document.activeElement;
+  if (event.shiftKey && (current === first || !focusable.includes(current))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (current === last || !focusable.includes(current))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function closeCalendarReminder() {
   document.getElementById("calendarReminderModal").style.display = "none";
   pendingCalendarTask = null;
@@ -3884,10 +3912,8 @@ function buildOwnerActions() {
     const nextLegal = getNextLegalState();
     return [
       {
-        status: "ok",
-        name: "目前沒有急迫事項",
-        statusText: "正常",
-        meta: maintenance.meta
+        ...maintenance,
+        name: "下次定期保養"
       },
       nextLegal ? {
         status: nextLegal.status,
@@ -4129,6 +4155,14 @@ function updateFilterPills() {
 function updateFilterSummary(filtered) {
   const el = document.getElementById("filterSummary");
   if (!el) return;
+  if (activeRecordsSubtab === "mileage") {
+    const scopeParts = [];
+    if (currentYear) scopeParts.push(currentYear + " 年");
+    if (currentSearch) scopeParts.push("搜尋「" + currentSearch + "」");
+    const scope = scopeParts.length ? "（" + scopeParts.join(" / ") + "）" : "";
+    el.textContent = `顯示 ${filtered.length} 筆里程紀錄${scope}`;
+    return;
+  }
   const filteredServiceRecords = filtered.filter(r => !isMileageUpdateRecord(r));
   const total = filteredServiceRecords.reduce((sum, r) => sum + asNumber(r.cost), 0);
   const parts = [];
@@ -4869,11 +4903,15 @@ function setRecordsSubtab(tab) {
   const allPanel = document.getElementById("allRecordsPanel");
   const fuelPanel = document.getElementById("fuelAnalysisPanel");
   const categoryFilters = document.getElementById("filterPills");
+  const filterControls = document.getElementById("recordFilterControls");
+  const filterSummary = document.getElementById("filterSummary");
   const searchInput = document.getElementById("searchInput");
   const yearFilter = document.getElementById("yearFilter");
 
   if (allPanel) allPanel.hidden = activeRecordsSubtab === "fuel";
   if (fuelPanel) fuelPanel.hidden = activeRecordsSubtab !== "fuel";
+  if (filterControls) filterControls.hidden = activeRecordsSubtab === "fuel";
+  if (filterSummary) filterSummary.hidden = activeRecordsSubtab === "fuel";
   if (categoryFilters) categoryFilters.hidden = activeRecordsSubtab !== "all";
   if (searchInput) searchInput.disabled = activeRecordsSubtab === "fuel";
   if (yearFilter) yearFilter.disabled = activeRecordsSubtab === "fuel";
@@ -4886,16 +4924,23 @@ function setRecordsSubtab(tab) {
   renderRecords();
 }
 
-function openQuickEntryMenu() {
-  document.getElementById("quickEntryModal").style.display = "flex";
+function openQuickEntryMenu(invoker = null) {
+  const modal = document.getElementById("quickEntryModal");
+  quickEntryInvoker = invoker?.focus ? invoker : document.activeElement || null;
+  modal.style.display = "flex";
+  const focusable = getModalFocusableElements(modal);
+  const primaryAction = focusable.find(element => element.dataset?.quickEntry === "fuel");
+  (primaryAction || focusable[0])?.focus();
 }
 
-function closeQuickEntryMenu() {
+function closeQuickEntryMenu({ restoreFocus = true } = {}) {
   document.getElementById("quickEntryModal").style.display = "none";
+  if (restoreFocus && quickEntryInvoker?.focus) quickEntryInvoker.focus();
+  quickEntryInvoker = null;
 }
 
 function runQuickEntry(action) {
-  closeQuickEntryMenu();
+  closeQuickEntryMenu({ restoreFocus: false });
   if (action === "fuel") {
     setActiveView("records");
     openFuelLogModal();
@@ -5820,8 +5865,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (event.target === document.getElementById("calendarReminderModal")) closeCalendarReminder();
   });
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && document.getElementById("calendarReminderModal").style.display === "flex") {
-      closeCalendarReminder();
+    const calendarModal = document.getElementById("calendarReminderModal");
+    const quickEntryModal = document.getElementById("quickEntryModal");
+    if (calendarModal.style.display === "flex") {
+      if (event.key === "Escape") closeCalendarReminder();
+      else trapModalFocus(event, calendarModal);
+    } else if (quickEntryModal.style.display === "flex") {
+      if (event.key === "Escape") closeQuickEntryMenu();
+      else trapModalFocus(event, quickEntryModal);
     }
   });
   document.getElementById("btnQuickEntry").addEventListener("click", openQuickEntryMenu);
