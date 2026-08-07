@@ -231,6 +231,15 @@ test("the mileage subtab filters to mileage status records without clearing sear
   assert.equal(element("searchInput").value, "");
 });
 
+test("quick entry prioritizes fuel and service with accessible mobile controls", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+
+  assert.match(html, /class="quick-entry-primary"[\s\S]*data-quick-entry="fuel"[\s\S]*data-quick-entry="service"/);
+  assert.match(html, /class="quick-entry-secondary"[\s\S]*data-quick-entry="mileage"[\s\S]*data-quick-entry="photo"[\s\S]*data-quick-entry="text"/);
+  assert.match(html, /\.quick-entry-btn\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(html, /id="quickEntryModal"[^>]*role="dialog"[^>]*aria-modal="true"/);
+});
+
 test("owner actions route to their forms and deleted records can be restored", () => {
   const { api, element } = loadApp();
   const original = fuelRecord();
