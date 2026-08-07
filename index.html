@@ -1245,6 +1245,63 @@ body {
   cursor: pointer;
 }
 .more-status .stats-grid-secondary { padding: 0 20px 20px; }
+.search-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.data-management {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.data-management > summary {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 44px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.data-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+.record-subtabs {
+  display: flex;
+  gap: 8px;
+  max-width: 1200px;
+  margin: 14px auto 0;
+  padding: 0 24px;
+}
+.record-subtab {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.record-subtab.is-active {
+  border-color: var(--blue);
+  background: var(--blue-bg);
+  color: var(--text-primary);
+}
+.record-subtab:focus-visible,
+.data-management > summary:focus-visible,
+.more-status > summary:focus-visible,
+.overview-record:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(88,166,255,0.18);
+}
 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1417,6 +1474,13 @@ body {
   .dashboard-metric-card { padding: 14px; }
   .dashboard-metric-card strong { font-size: 1.35rem; }
   .overview-recent-section { padding: 18px; }
+  .record-subtabs {
+    margin-top: 12px;
+    padding: 0 16px;
+    overflow-x: auto;
+  }
+  .record-subtab { flex: 1 0 auto; }
+  .data-management-actions .btn { min-height: 44px; }
   .stats-section {
     margin-top: 18px;
   }
@@ -1823,76 +1887,74 @@ body {
   </section>
   </div>
 
-  <!-- 加油紀錄區 -->
   <div class="app-view" id="recordsView" hidden>
-  <section class="fuel-log-section">
-    <div class="fuel-log-panel">
-      <div class="fuel-log-header">
-        <h2 class="fuel-log-title">加油紀錄</h2>
-        <div class="fuel-log-summary" id="fuelLogSummary">尚無加油資料</div>
-      </div>
-      <div class="fuel-log-table-wrap">
-        <table class="fuel-log-table">
-          <thead>
-            <tr>
-              <th>日期</th>
-              <th>油品</th>
-              <th>里程</th>
-              <th>公升</th>
-              <th>牌告</th>
-              <th>折抵</th>
-              <th>實付/L</th>
-              <th>油費</th>
-              <th>油耗</th>
-              <th>備註</th>
-            </tr>
-          </thead>
-          <tbody id="fuelLogTableBody"></tbody>
-        </table>
-      </div>
-      <div class="fuel-log-empty" id="fuelLogEmpty">第一筆加滿會作為基準，第二次加滿後開始計算油耗。</div>
-    </div>
-  </section>
-
   <!-- 篩選 & 搜尋列 -->
   <section class="filter-section">
     <div class="filter-bar">
       <div class="search-wrap">
-        <span class="search-icon" aria-hidden="true">🔍</span>
+        <span class="search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg></span>
         <input type="text" id="searchInput" class="search-input" placeholder="搜尋紀錄內容..." aria-label="搜尋紀錄內容"/>
       </div>
       <div class="filter-pills" id="filterPills">
-        <button class="pill pill-active" data-cat="全部">全部</button>
-        <button class="pill" data-cat="保養">保養</button>
-        <button class="pill" data-cat="維修">維修</button>
-        <button class="pill" data-cat="更換">更換</button>
-        <button class="pill" data-cat="加油">加油</button>
-        <button class="pill" data-cat="保險">保險</button>
-        <button class="pill" data-cat="檢驗/稅費">檢驗/稅費</button>
-        <button class="pill" data-cat="清潔美容">清潔美容</button>
-        <button class="pill" data-cat="改裝升級">改裝升級</button>
-        <button class="pill" data-cat="其他">其他</button>
+        <button class="pill pill-active" type="button" data-cat="全部">全部</button>
+        <button class="pill" type="button" data-cat="保養">保養</button>
+        <button class="pill" type="button" data-cat="維修">維修</button>
+        <button class="pill" type="button" data-cat="更換">更換</button>
+        <button class="pill" type="button" data-cat="加油">加油</button>
+        <button class="pill" type="button" data-cat="保險">保險</button>
+        <button class="pill" type="button" data-cat="檢驗/稅費">檢驗/稅費</button>
+        <button class="pill" type="button" data-cat="清潔美容">清潔美容</button>
+        <button class="pill" type="button" data-cat="改裝升級">改裝升級</button>
+        <button class="pill" type="button" data-cat="其他">其他</button>
       </div>
       <select id="yearFilter" class="year-select" aria-label="年份篩選">
         <option value="">所有年份</option>
       </select>
-      <button class="btn btn-ghost" id="btnExport" type="button">↓ CSV</button>
+    </div>
+    <div class="filter-summary" id="filterSummary">顯示 0 筆</div>
+    <details class="data-management" id="dataManagement">
+      <summary>資料管理</summary>
       <div class="data-management-actions">
-        <button class="btn btn-ghost" id="btnBackupExport" type="button">↓ 備份 JSON</button>
+        <button class="btn btn-ghost" id="btnExport" type="button">下載 CSV</button>
+        <button class="btn btn-ghost" id="btnBackupExport" type="button">備份 JSON</button>
         <button class="btn btn-ghost" id="btnBackupRestore" type="button">還原備份</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
-    </div>
-    <div class="filter-summary" id="filterSummary">顯示 0 筆</div>
+    </details>
   </section>
 
-  <!-- 紀錄列表 -->
-  <section class="records-section">
-    <div id="recordsContainer"></div>
-    <div id="emptyState" class="empty-state" style="display:none;">
-      <div class="empty-icon">🔍</div>
-      <p>找不到符合條件的紀錄</p>
-    </div>
+  <nav class="record-subtabs" id="recordSubtabs" aria-label="紀錄內容">
+    <button class="record-subtab is-active" type="button" data-records-subtab="all" aria-pressed="true">全部紀錄</button>
+    <button class="record-subtab" type="button" data-records-subtab="fuel" aria-pressed="false">加油分析</button>
+    <button class="record-subtab" type="button" data-records-subtab="mileage" aria-pressed="false">里程</button>
+  </nav>
+
+  <section id="allRecordsPanel">
+    <section class="records-section">
+      <div id="recordsContainer"></div>
+      <div id="emptyState" class="empty-state" style="display:none;">
+        <div class="empty-icon" aria-hidden="true">—</div>
+        <p>找不到符合條件的紀錄</p>
+      </div>
+    </section>
+  </section>
+
+  <section id="fuelAnalysisPanel" hidden>
+    <section class="fuel-log-section">
+      <div class="fuel-log-panel">
+        <div class="fuel-log-header">
+          <h2 class="fuel-log-title">加油分析</h2>
+          <div class="fuel-log-summary" id="fuelLogSummary">尚無加油資料</div>
+        </div>
+        <div class="fuel-log-table-wrap">
+          <table class="fuel-log-table">
+            <thead><tr><th>日期</th><th>油品</th><th>里程</th><th>公升</th><th>牌告</th><th>折抵</th><th>實付/L</th><th>油費</th><th>油耗</th><th>備註</th></tr></thead>
+            <tbody id="fuelLogTableBody"></tbody>
+          </table>
+        </div>
+        <div class="fuel-log-empty" id="fuelLogEmpty">第一筆加滿會作為基準，第二次加滿後開始計算油耗。</div>
+      </div>
+    </section>
   </section>
   </div>
   </main>
@@ -2312,6 +2374,7 @@ let photoPreviewUrl = "";
 let aiBackendReady = null;
 let fuelEditIndex = -1;
 let activeView = "overview";
+let activeRecordsSubtab = "all";
 let deletedRecordSnapshot = null;
 let toastTimer = null;
 let pendingRestoreRecords = null;
@@ -3937,6 +4000,10 @@ function buildCategoryChart() {
 function getFilteredRecords() {
   let list = [...records];
 
+  if (activeRecordsSubtab === "mileage") {
+    list = list.filter(isMileageUpdateRecord);
+  }
+
   // 類別篩選
   if (currentFilter !== "全部") {
     list = list.filter(r => r.category === currentFilter);
@@ -4512,6 +4579,28 @@ function setActiveView(view) {
     button.classList.toggle("is-active", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
+}
+
+function setRecordsSubtab(tab) {
+  activeRecordsSubtab = ["all", "fuel", "mileage"].includes(tab) ? tab : "all";
+  const allPanel = document.getElementById("allRecordsPanel");
+  const fuelPanel = document.getElementById("fuelAnalysisPanel");
+  const categoryFilters = document.getElementById("filterPills");
+  const searchInput = document.getElementById("searchInput");
+  const yearFilter = document.getElementById("yearFilter");
+
+  if (allPanel) allPanel.hidden = activeRecordsSubtab === "fuel";
+  if (fuelPanel) fuelPanel.hidden = activeRecordsSubtab !== "fuel";
+  if (categoryFilters) categoryFilters.hidden = activeRecordsSubtab !== "all";
+  if (searchInput) searchInput.disabled = activeRecordsSubtab === "fuel";
+  if (yearFilter) yearFilter.disabled = activeRecordsSubtab === "fuel";
+
+  document.querySelectorAll("[data-records-subtab]").forEach(button => {
+    const selected = button.dataset.recordsSubtab === activeRecordsSubtab;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  renderRecords();
 }
 
 function openQuickEntryMenu() {
@@ -5451,6 +5540,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll(".app-tab").forEach(button => {
     button.addEventListener("click", () => setActiveView(button.dataset.view));
+  });
+  document.querySelectorAll("[data-records-subtab]").forEach(button => {
+    button.addEventListener("click", () => setRecordsSubtab(button.dataset.recordsSubtab));
   });
   document.querySelectorAll("[data-overview-action='records']").forEach(button => {
     button.addEventListener("click", () => setActiveView("records"));

@@ -201,6 +201,36 @@ test("the overview recent preview renders at most three records", () => {
   assert.equal((element("overviewRecentRecords").innerHTML.match(/class="overview-record"/g) || []).length, 3);
 });
 
+test("record subtabs keep fuel analysis out of the all-records panel", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+
+  assert.ok(html.indexOf('id="searchInput"') < html.indexOf('id="recordSubtabs"'));
+  assert.match(html, /data-records-subtab="all"[^>]*>全部紀錄/);
+  assert.match(html, /data-records-subtab="fuel"[^>]*>加油分析/);
+  assert.match(html, /data-records-subtab="mileage"[^>]*>里程/);
+  assert.match(html, /id="fuelAnalysisPanel"[^>]*hidden/);
+});
+
+test("the mileage subtab filters to mileage status records without clearing search", () => {
+  const { api, element } = loadApp();
+  api.setRecords([fuelRecord(), {
+    date: "2026-08-07",
+    mileage: 2000,
+    category: "其他",
+    cost: 0,
+    detail: "目前里程更新",
+    note: "用於儀表板里程計算"
+  }]);
+  element("searchInput").value = "";
+
+  assert.equal(typeof api.setRecordsSubtab, "function");
+  api.setRecordsSubtab("mileage");
+  assert.equal(api.getActiveRecordsSubtab(), "mileage");
+  assert.equal(api.getFilteredRecords().length, 1);
+  assert.equal(api.getFilteredRecords()[0].detail, "目前里程更新");
+  assert.equal(element("searchInput").value, "");
+});
+
 test("owner actions route to their forms and deleted records can be restored", () => {
   const { api, element } = loadApp();
   const original = fuelRecord();
