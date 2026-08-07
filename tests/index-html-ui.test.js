@@ -278,6 +278,40 @@ test("calendar text is escaped folded and has a stable uid", () => {
   assert.ok(first.split("\r\n").every(line => new TextEncoder().encode(line.replace(/^ /, "")).length <= 75));
 });
 
+test("calendar eligibility requires a reliable date", () => {
+  const { api } = loadApp();
+
+  assert.equal(typeof api.getCalendarTask, "function");
+  assert.equal(api.getCalendarTask({ name: "輪胎", dueMileage: 10000 }), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getCalendarTask({
+    name: "定期保養",
+    dueDate: new Date("2027-05-28T00:00:00"),
+    dueMileage: 10000
+  }))), {
+    title: "Superb 定期保養",
+    date: "2027-05-28",
+    type: "vehicle-reminder",
+    description: "預計 2027-05-28 或 10,000 公里，以先到者為準"
+  });
+});
+
+test("opening a calendar reminder shows the task and default alarms", () => {
+  const { api, element } = loadApp();
+  const task = {
+    title: "Superb 使用牌照稅",
+    date: "2027-04-01",
+    type: "legal",
+    description: "4 月繳納"
+  };
+
+  assert.equal(typeof api.openCalendarReminder, "function");
+  api.openCalendarReminder(task);
+  assert.equal(element("calendarReminderModal").style.display, "flex");
+  assert.equal(element("calendarReminderTitle").textContent, task.title);
+  assert.equal(element("calendarReminderDate").textContent, "2027-04-01");
+  assert.match(element("calendarReminderAlarms").textContent, /7 天前.*1 天前/);
+});
+
 test("owner actions route to their forms and deleted records can be restored", () => {
   const { api, element } = loadApp();
   const original = fuelRecord();

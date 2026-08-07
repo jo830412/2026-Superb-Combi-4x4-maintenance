@@ -1319,6 +1319,41 @@ body {
   outline: none;
   box-shadow: 0 0 0 3px rgba(88,166,255,0.18);
 }
+.calendar-action svg,
+.calendar-reminder-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.calendar-reminder-sheet .modal-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+}
+.calendar-reminder-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+.calendar-reminder-copy { display: grid; gap: 7px; }
+.calendar-reminder-copy strong { font-size: 1.05rem; }
+.calendar-reminder-copy time { color: var(--blue); font-weight: 700; }
+.calendar-reminder-copy p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.55; }
+.calendar-reminder-copy small { color: var(--text-muted); font-size: 0.82rem; line-height: 1.5; }
+.calendar-reminder-alarms {
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary) !important;
+}
 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1507,6 +1542,14 @@ body {
   }
   .record-subtab { flex: 1 0 auto; }
   .data-management-actions .btn { min-height: 44px; }
+  #calendarReminderModal { align-items: flex-end; }
+  #calendarReminderModal .modal {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 20px 20px 0 0;
+  }
   .stats-section {
     margin-top: 18px;
   }
@@ -2307,6 +2350,29 @@ body {
     </div>
   </div>
 
+  <div id="calendarReminderModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="calendarReminderHeading" style="display:none;">
+    <div class="modal modal-sm calendar-reminder-sheet">
+      <div class="modal-header">
+        <h2 id="calendarReminderHeading">加入 iPhone 行事曆</h2>
+        <button class="modal-close" id="calendarReminderCloseBtn" type="button" aria-label="關閉">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="calendar-reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path><path d="M8 14h3v3H8z"></path></svg></div>
+        <div class="calendar-reminder-copy">
+          <strong id="calendarReminderTitle">車輛提醒</strong>
+          <time id="calendarReminderDate"></time>
+          <p id="calendarReminderCondition"></p>
+          <p class="calendar-reminder-alarms" id="calendarReminderAlarms">提醒：7 天前、1 天前</p>
+          <small>下載後仍需在 iPhone 上確認加入行事曆。</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="calendarReminderCancelBtn" type="button">取消</button>
+        <button class="btn btn-primary" id="calendarReminderConfirmBtn" type="button">下載並開啟行事曆</button>
+      </div>
+    </div>
+  </div>
+
   <div id="quickEntryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="quickEntryTitle" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
@@ -2408,6 +2474,9 @@ let toastTimer = null;
 let pendingRestoreRecords = null;
 let pendingDuplicateSave = null;
 let backupDownloadSpy = null;
+let pendingCalendarTask = null;
+let renderedOwnerActions = [];
+let calendarReminderInvoker = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -3621,6 +3690,8 @@ function getWarrantyState(today = new Date()) {
       status: "due",
       name: "確認保固權益",
       statusText: "已到期",
+      dueDate: endDate,
+      calendarType: "warranty",
       meta: `原廠/延長保固推估至 ${formatDateYMD(endDate)}，請依保固書確認。`
     };
   }
@@ -3629,6 +3700,8 @@ function getWarrantyState(today = new Date()) {
       status: "soon",
       name: "保固到期前檢查",
       statusText: "快到期",
+      dueDate: endDate,
+      calendarType: "warranty",
       meta: `推估 ${formatDateYMD(endDate)} 到期，建議到期前安排健檢。`
     };
   }
@@ -3636,8 +3709,69 @@ function getWarrantyState(today = new Date()) {
     status: "ok",
     name: "保固期限",
     statusText: "有效",
+    dueDate: endDate,
+    calendarType: "warranty",
     meta: `推估至 ${formatDateYMD(endDate)}，仍建議以保固書為準。`
   };
+}
+
+function getMaintenanceCalendarSchedule() {
+  const latest = getLastMaintenanceRecord();
+  const baselineDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
+  const baselineMileage = latest && Number.isFinite(Number(latest.mileage))
+    ? Number(latest.mileage)
+    : getVehicleBaselineMileage();
+  return {
+    dueDate: baselineDate ? addMonths(baselineDate, MAINTENANCE_INTERVAL_MONTHS) : null,
+    dueMileage: Number.isFinite(baselineMileage) ? baselineMileage + MAINTENANCE_INTERVAL_KM : null,
+    calendarType: "maintenance"
+  };
+}
+
+function getTrackerCalendarSchedule(rule) {
+  if (!rule.intervalMonths) return {};
+  const latest = getLatestMatchingRecord(rule.terms);
+  const baselineDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
+  const firstDueDate = !latest && rule.firstDueMonths && parseDate(rule.firstDueFrom)
+    ? addMonths(parseDate(rule.firstDueFrom), rule.firstDueMonths)
+    : null;
+  const dueDate = firstDueDate || (baselineDate ? addMonths(baselineDate, rule.intervalMonths) : null);
+  return dueDate ? { dueDate, calendarType: "vehicle-reminder" } : {};
+}
+
+function getCalendarTask(action) {
+  const dueDate = action?.dueDate instanceof Date ? action.dueDate : parseDate(action?.dueDate);
+  if (!dueDate) return null;
+
+  const date = formatDateYMD(dueDate);
+  const description = Number.isFinite(action.dueMileage)
+    ? `預計 ${date} 或 ${Number(action.dueMileage).toLocaleString("zh-TW")} 公里，以先到者為準`
+    : action.meta || `預計日期 ${date}`;
+  return {
+    title: `Superb ${action.name}`,
+    date,
+    type: action.calendarType || "vehicle-reminder",
+    description
+  };
+}
+
+function openCalendarReminder(task, invoker = null) {
+  if (!task) return;
+  pendingCalendarTask = { ...task };
+  calendarReminderInvoker = invoker || document.activeElement || null;
+  document.getElementById("calendarReminderTitle").textContent = task.title;
+  document.getElementById("calendarReminderDate").textContent = task.date;
+  document.getElementById("calendarReminderCondition").textContent = task.description || "";
+  document.getElementById("calendarReminderAlarms").textContent = "提醒：7 天前、1 天前";
+  document.getElementById("calendarReminderModal").style.display = "flex";
+  document.getElementById("calendarReminderConfirmBtn")?.focus();
+}
+
+function closeCalendarReminder() {
+  document.getElementById("calendarReminderModal").style.display = "none";
+  pendingCalendarTask = null;
+  if (calendarReminderInvoker?.focus) calendarReminderInvoker.focus();
+  calendarReminderInvoker = null;
 }
 
 function getDataHealthText() {
@@ -3655,7 +3789,7 @@ function getDataHealthText() {
 function buildOwnerActions() {
   const actions = [];
   const currentMileage = getCurrentMileage();
-  const maintenance = getMaintenanceActionState();
+  const maintenance = { ...getMaintenanceActionState(), ...getMaintenanceCalendarSchedule() };
   const warranty = getWarrantyState();
   const fuelStats = getFuelStats();
 
@@ -3679,7 +3813,8 @@ function buildOwnerActions() {
         status: state.status,
         name: rule.name,
         statusText: state.value,
-        meta: [state.meta, state.next].filter(Boolean).join(" / ")
+        meta: [state.meta, state.next].filter(Boolean).join(" / "),
+        ...getTrackerCalendarSchedule(rule)
       });
     });
 
@@ -3691,7 +3826,9 @@ function buildOwnerActions() {
         status: state.status,
         name: state.name,
         statusText: state.statusText,
-        meta: state.meta
+        meta: state.meta,
+        dueDate: state.dueDate,
+        calendarType: "legal"
       });
     });
 
@@ -3763,21 +3900,32 @@ function renderOwnerDashboard() {
   nextLegalEl.textContent = nextLegal ? `${nextLegal.name} ${formatDateYMD(nextLegal.dueDate)}` : "—";
   dataHealth.textContent = getDataHealthText();
 
-  list.innerHTML = actions.map(action => `
+  renderedOwnerActions = actions;
+  list.innerHTML = actions.map((action, index) => {
+    const calendarTask = getCalendarTask(action);
+    return `
     <div class="owner-action owner-action-${escapeHtml(action.status)}">
       <div class="owner-action-top">
         <div class="owner-action-name">${escapeHtml(action.name)}</div>
         <div class="owner-action-control">
           <div class="owner-action-status">${escapeHtml(action.statusText)}</div>
           ${action.action ? `<button class="btn btn-ghost btn-sm" type="button" data-owner-action="${escapeHtml(action.action)}">${escapeHtml(action.actionLabel)}</button>` : ""}
+          ${calendarTask ? `<button class="btn btn-ghost btn-sm calendar-action" type="button" data-calendar-task="${index}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path></svg><span>加入行事曆</span></button>` : ""}
         </div>
       </div>
       <div class="owner-action-meta">${escapeHtml(action.meta || "")}</div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 
   list.querySelectorAll("[data-owner-action]").forEach(button => {
     button.addEventListener("click", () => runOwnerAction(button.dataset.ownerAction));
+  });
+  list.querySelectorAll("[data-calendar-task]").forEach(button => {
+    button.addEventListener("click", () => {
+      const action = renderedOwnerActions[Number(button.dataset.calendarTask)];
+      openCalendarReminder(getCalendarTask(action), button);
+    });
   });
 }
 
@@ -5632,6 +5780,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initData();
 
   // 快速新增與內容切換
+  document.getElementById("calendarReminderCloseBtn").addEventListener("click", closeCalendarReminder);
+  document.getElementById("calendarReminderCancelBtn").addEventListener("click", closeCalendarReminder);
+  document.getElementById("calendarReminderModal").addEventListener("click", event => {
+    if (event.target === document.getElementById("calendarReminderModal")) closeCalendarReminder();
+  });
   document.getElementById("btnQuickEntry").addEventListener("click", openQuickEntryMenu);
   document.getElementById("quickEntryModalClose").addEventListener("click", closeQuickEntryMenu);
   document.getElementById("quickEntryModal").addEventListener("click", e => {
