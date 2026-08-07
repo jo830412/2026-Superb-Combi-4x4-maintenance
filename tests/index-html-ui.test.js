@@ -312,6 +312,61 @@ test("opening a calendar reminder shows the task and default alarms", () => {
   assert.match(element("calendarReminderAlarms").textContent, /7 天前.*1 天前/);
 });
 
+test("calendar download uses an ICS filename and success guidance", () => {
+  const created = [];
+  let createdBlob = null;
+  const { api, element } = loadApp({
+    urlApi: {
+      createObjectURL(blob) { createdBlob = blob; return "blob:calendar"; },
+      revokeObjectURL() {}
+    },
+    createElementImpl(tag) {
+      const node = createElement();
+      node.tagName = tag;
+      node.click = () => { node.clicked = true; };
+      created.push(node);
+      return node;
+    }
+  });
+  api.openCalendarReminder({
+    title: "Superb 保養",
+    date: "2027-05-28",
+    type: "maintenance",
+    description: "定期保養"
+  });
+
+  assert.equal(typeof api.downloadCalendarReminder, "function");
+  assert.equal(api.downloadCalendarReminder(), true);
+  const anchor = created.find(node => node.tagName === "a");
+  assert.equal(anchor.clicked, true);
+  assert.match(anchor.download, /^2027-05-28-.*\.ics$/);
+  assert.equal(createdBlob.type, "text/calendar;charset=utf-8");
+  assert.match(element("toastMessage").textContent, /已建立行事曆檔/);
+});
+
+test("calendar download failure keeps the reminder open and records unchanged", () => {
+  const { api, element } = loadApp({
+    urlApi: {
+      createObjectURL() { throw new Error("blocked"); },
+      revokeObjectURL() {}
+    }
+  });
+  const original = [fuelRecord()];
+  api.setRecords(original);
+  api.openCalendarReminder({
+    title: "Superb 保養",
+    date: "2027-05-28",
+    type: "maintenance",
+    description: "定期保養"
+  });
+
+  assert.equal(typeof api.downloadCalendarReminder, "function");
+  assert.equal(api.downloadCalendarReminder(), false);
+  assert.deepEqual(api.getRecords(), original);
+  assert.equal(element("calendarReminderModal").style.display, "flex");
+  assert.match(element("toastMessage").textContent, /行事曆檔建立失敗/);
+});
+
 test("owner actions route to their forms and deleted records can be restored", () => {
   const { api, element } = loadApp();
   const original = fuelRecord();
@@ -455,4 +510,14 @@ test("the README documents backups and overrideable duplicate warnings", () => {
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
   assert.match(readme, /JSON backups?.*recovery backup.*duplicate warnings?/i);
+});
+
+test("the README documents focused mobile and iPhone calendar verification", () => {
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+
+  assert.match(readme, /375 px/);
+  assert.match(readme, /全部紀錄.*加油分析.*里程/);
+  assert.match(readme, /\.ics/);
+  assert.match(readme, /7 天前.*1 天前/);
+  assert.match(readme, /iPhone.*確認/);
 });

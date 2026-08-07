@@ -35,8 +35,15 @@ GitHub Pages usually updates within 1-2 minutes after `git push`.
 
 - JSON backups can be downloaded locally; a full restore downloads a recovery backup first, and duplicate warnings can be overridden with Save Anyway.
 - 加油紀錄在編輯時會開啟完整加油表單，保留公升、油價、折扣、油費與加滿狀態的自動計算；儲存會更新原本那一筆紀錄。
-- 手機版以「新增」入口提供加油、保養／維修、里程、照片與文字快速新增，並以總覽、紀錄、分析切換主要內容。
+- 手機版總覽依序呈現目前里程與下次保養、最近油耗與近 12 月花費、前三項待辦和最近三筆紀錄，其餘統計收在「更多車況」。
+- 紀錄頁先顯示搜尋與篩選，再以「全部紀錄、加油分析、里程」切換內容；全部紀錄不會重複顯示完整加油分析表。
+- 「新增」入口優先顯示加油與保養／維修，仍可進入里程、照片及文字快速新增。
+- 有確定日期的待辦可下載本機 `.ics` 行事曆檔，預設在 7 天前與 1 天前提醒；iPhone 仍會顯示事件預覽並要求使用者確認加入。若 Safari 沒有立即開啟，可從下載項目開啟檔案。
 - 刪除紀錄後會顯示短暫的「復原」操作；儲存與雲端同步結果也會以提示列回饋。
+
+## Mobile Regression Check
+
+Run `node --test tests\index-html-ui.test.js`, serve the repository from a local HTTP server, and inspect the site at a 375 px viewport. Verify there is no horizontal scrolling, dashboard actions and record subtabs have at least 44 px touch targets, search text survives subtab changes, and all five quick-entry routes still open their original forms. Repeat once at 768 px for tablet layout.
 
 ## AI Record Assistant
 

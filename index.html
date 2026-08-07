@@ -3774,6 +3774,39 @@ function closeCalendarReminder() {
   calendarReminderInvoker = null;
 }
 
+function getCalendarFilename(task) {
+  const safeTitle = String(task?.title || "Superb-車輛提醒")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  return `${task.date}-${safeTitle || "Superb-車輛提醒"}.ics`;
+}
+
+function downloadCalendarReminder() {
+  if (!pendingCalendarTask) return false;
+
+  const task = { ...pendingCalendarTask };
+  let objectUrl = "";
+  try {
+    const blob = new Blob([buildCalendarFile(task)], { type: "text/calendar;charset=utf-8" });
+    objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = getCalendarFilename(task);
+    anchor.click();
+    closeCalendarReminder();
+    showToast("已建立行事曆檔；若未自動開啟，請從下載項目開啟");
+    return true;
+  } catch (error) {
+    showToast("行事曆檔建立失敗，請稍後重試");
+    return false;
+  } finally {
+    if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+}
+
 function getDataHealthText() {
   const checks = [
     getCurrentMileage() > 0 || Number.isFinite(getVehicleBaselineMileage()),
@@ -5782,8 +5815,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // 快速新增與內容切換
   document.getElementById("calendarReminderCloseBtn").addEventListener("click", closeCalendarReminder);
   document.getElementById("calendarReminderCancelBtn").addEventListener("click", closeCalendarReminder);
+  document.getElementById("calendarReminderConfirmBtn").addEventListener("click", downloadCalendarReminder);
   document.getElementById("calendarReminderModal").addEventListener("click", event => {
     if (event.target === document.getElementById("calendarReminderModal")) closeCalendarReminder();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && document.getElementById("calendarReminderModal").style.display === "flex") {
+      closeCalendarReminder();
+    }
   });
   document.getElementById("btnQuickEntry").addEventListener("click", openQuickEntryMenu);
   document.getElementById("quickEntryModalClose").addEventListener("click", closeQuickEntryMenu);
