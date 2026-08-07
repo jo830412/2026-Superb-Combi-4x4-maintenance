@@ -2678,6 +2678,80 @@ function formatDateYMD(date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+function escapeIcsText(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\r?\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function foldIcsLine(line) {
+  const chunks = [];
+  let current = "";
+  let bytes = 0;
+
+  for (const char of String(line)) {
+    const size = new TextEncoder().encode(char).length;
+    if (bytes + size > 73 && current) {
+      chunks.push(current);
+      current = " ";
+      bytes = 1;
+    }
+    current += char;
+    bytes += size;
+  }
+  chunks.push(current);
+  return chunks.join("\r\n");
+}
+
+function buildCalendarUid(task) {
+  const source = `${VEHICLE_PROFILE.name}|${task.type || "reminder"}|${task.date}|${task.title}`;
+  let hash = 2166136261;
+  for (const char of source) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  }
+  return `${(hash >>> 0).toString(16)}-${task.date.replace(/-/g, "")}@superb-maintenance.local`;
+}
+
+function buildCalendarFile(task, now = new Date()) {
+  const start = parseDate(task?.date);
+  if (!start) throw new Error("提醒日期無效");
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const compactDate = date => formatDateYMD(date).replace(/-/g, "");
+  const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const title = task.title || "Superb 車輛提醒";
+  const description = task.description || "請開啟 Superb 保養紀錄確認詳細內容。";
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Superb Maintenance//Vehicle Reminder//ZH-TW",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${buildCalendarUid({ ...task, title })}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;VALUE=DATE:${compactDate(start)}`,
+    `DTEND;VALUE=DATE:${compactDate(end)}`,
+    `SUMMARY:${escapeIcsText(title)}`,
+    `DESCRIPTION:${escapeIcsText(description)}`,
+    "BEGIN:VALARM",
+    "TRIGGER:-P7D",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${escapeIcsText(title)}`,
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "TRIGGER:-P1D",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${escapeIcsText(title)}`,
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ];
+  return lines.map(foldIcsLine).join("\r\n") + "\r\n";
+}
+
 function getStoredRecordValidationError(record) {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     return "Record must be an object.";

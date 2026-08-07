@@ -240,6 +240,44 @@ test("quick entry prioritizes fuel and service with accessible mobile controls",
   assert.match(html, /id="quickEntryModal"[^>]*role="dialog"[^>]*aria-modal="true"/);
 });
 
+test("calendar files contain an all-day event and two alarms", () => {
+  const { api } = loadApp();
+
+  assert.equal(typeof api.buildCalendarFile, "function");
+  const ics = api.buildCalendarFile({
+    title: "Superb 定期保養",
+    date: "2027-05-28",
+    type: "maintenance",
+    description: "10,000 公里或日期，以先到者為準"
+  }, new Date("2026-08-07T00:00:00Z"));
+
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20270528\r\n/);
+  assert.match(ics, /DTEND;VALUE=DATE:20270529\r\n/);
+  assert.match(ics, /TRIGGER:-P7D\r\n/);
+  assert.match(ics, /TRIGGER:-P1D\r\n/);
+  assert.match(ics, /DTSTAMP:20260807T000000Z\r\n/);
+  assert.match(ics, /END:VCALENDAR\r\n$/);
+});
+
+test("calendar text is escaped folded and has a stable uid", () => {
+  const { api } = loadApp();
+  const task = {
+    title: "保養,檢查;輪胎",
+    date: "2027-05-28",
+    type: "maintenance",
+    description: "第一行\\測試\n第二行"
+  };
+
+  assert.equal(typeof api.buildCalendarFile, "function");
+  const first = api.buildCalendarFile(task, new Date("2026-08-07T00:00:00Z"));
+  const second = api.buildCalendarFile(task, new Date("2026-08-08T00:00:00Z"));
+  assert.match(first, /SUMMARY:保養\\,檢查\\;輪胎/);
+  assert.match(first, /DESCRIPTION:第一行\\\\測試\\n第二行/);
+  assert.equal(first.match(/UID:(.+)\r\n/)[1], second.match(/UID:(.+)\r\n/)[1]);
+  assert.ok(first.split("\r\n").every(line => new TextEncoder().encode(line.replace(/^ /, "")).length <= 75));
+});
+
 test("owner actions route to their forms and deleted records can be restored", () => {
   const { api, element } = loadApp();
   const original = fuelRecord();
