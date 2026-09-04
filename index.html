@@ -2530,6 +2530,7 @@ let deleteTargetIndex = -1;
 let costChart = null;
 let catChart = null;
 let lastSyncAt = null;
+let lastCloudFingerprint = "";
 let photoMode = "fuel";
 let photoParsed = null;
 let photoPreviewUrl = "";
@@ -2650,14 +2651,30 @@ const CONSUMABLE_RULES = [
   }
 ];
 
+function parseCloudState(payload) {
+  if (Array.isArray(payload)) {
+    return { records: payload, fingerprint: "", updatedAt: "" };
+  }
+  if (payload && Array.isArray(payload.records)) {
+    return {
+      records: payload.records,
+      fingerprint: typeof payload.fingerprint === "string" ? payload.fingerprint : "",
+      updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : ""
+    };
+  }
+  throw new Error("雲端資料格式不正確");
+}
+
 async function initData() {
   document.getElementById("recordsContainer").innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>正在從雲端同步資料...</p></div>';
   setSyncStatus("syncing", "同步中");
   
   try {
-    const res = await fetchWithTimeout(API_URL);
+    const res = await fetchWithTimeout(API_URL + "?action=syncState");
     if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
+    const cloudState = parseCloudState(await res.json());
+    const data = cloudState.records;
+    lastCloudFingerprint = cloudState.fingerprint;
     
     if (Array.isArray(data) && data.length > 0) {
       records = data;
@@ -2686,15 +2703,36 @@ async function initData() {
   refresh();
 }
 
-async function syncToCloud(data) {
+async function syncToCloud(data, { allowDestructiveReplace = false, reason = "save" } = {}) {
   setSyncStatus("syncing", "同步中");
   try {
     const res = await fetchWithTimeout(API_URL, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        records: data,
+        expectedFingerprint: lastCloudFingerprint,
+        allowDestructiveReplace,
+        reason
+      }),
       redirect: 'follow'
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
+    const result = typeof res.json === "function"
+      ? await res.json()
+      : { status: "success" };
+    if (result && result.status === "conflict") {
+      const message = result.message || "雲端資料已變更，請重新載入後再試。";
+      setSyncStatus("error", message + " 本機資料仍保留。");
+      return false;
+    }
+    if (result && result.status && result.status !== "success") {
+      const message = result.message || "雲端拒絕這次同步";
+      setSyncStatus("error", message + " 本機資料仍保留。");
+      return false;
+    }
+    if (result && typeof result.fingerprint === "string") {
+      lastCloudFingerprint = result.fingerprint;
+    }
     lastSyncAt = new Date();
     setSyncStatus("ok", "已同步 " + formatTime(lastSyncAt));
     return true;
@@ -2705,11 +2743,11 @@ async function syncToCloud(data) {
   }
 }
 
-function saveRecords(data, { announce = true } = {}) {
+function saveRecords(data, { announce = true, allowDestructiveReplace = false, reason = "save" } = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   setSyncStatus("syncing", "本機已保存，同步中");
   if (announce) showToast("已儲存到本機，正在同步…", null, { routine: true });
-  syncToCloud(data).then(ok => {
+  syncToCloud(data, { allowDestructiveReplace, reason }).then(ok => {
     if (announce) showToast(ok ? "已同步雲端" : "同步失敗，本機資料仍保留", null, { routine: true });
   });
 }
@@ -3025,7 +3063,7 @@ function confirmBackupRestore() {
   }
   records = pendingRestoreRecords.map(record => ({ ...record }));
   pendingRestoreRecords = null;
-  saveRecords(records, { announce: false });
+  saveRecords(records, { announce: false, allowDestructiveReplace: true, reason: "restore" });
   closeBackupRestoreModal();
   refresh();
   showToast(`已還原 ${records.length} 筆紀錄`);

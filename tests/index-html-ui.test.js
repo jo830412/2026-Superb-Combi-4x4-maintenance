@@ -77,7 +77,14 @@ function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
   };
   vm.createContext(context);
   vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, updateStats: typeof updateStats === "function" ? updateStats : null, buildOwnerActions: typeof buildOwnerActions === "function" ? buildOwnerActions : null, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, updateFilterSummary: typeof updateFilterSummary === "function" ? updateFilterSummary : null, trapModalFocus: typeof trapModalFocus === "function" ? trapModalFocus : null, openQuickEntryMenu: typeof openQuickEntryMenu === "function" ? openQuickEntryMenu : null, closeQuickEntryMenu: typeof closeQuickEntryMenu === "function" ? closeQuickEntryMenu : null, setDocumentActiveElement: value => { document.activeElement = value; }, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getOwnershipCostBuckets: typeof getOwnershipCostBuckets === "function" ? getOwnershipCostBuckets : null, getDataQualityIssues: typeof getDataQualityIssues === "function" ? getDataQualityIssues : null, renderDataQualityPanel: typeof renderDataQualityPanel === "function" ? renderDataQualityPanel : null, renderFuelLogSection: typeof renderFuelLogSection === "function" ? renderFuelLogSection : null, getFuelStats: typeof getFuelStats === "function" ? getFuelStats : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
-  return { api: context.__testApi, element: getElement };
+  vm.runInContext(`Object.assign(globalThis.__testApi, {
+    initData: typeof initData === "function" ? initData : null,
+    parseCloudState: typeof parseCloudState === "function" ? parseCloudState : null,
+    syncToCloud: typeof syncToCloud === "function" ? syncToCloud : null,
+    getLastCloudFingerprint: () => typeof lastCloudFingerprint === "undefined" ? null : lastCloudFingerprint,
+    setLastCloudFingerprint: value => { lastCloudFingerprint = value; }
+  });`, context);
+  return { api: context.__testApi, element: getElement, localStore };
 }
 
 function fuelRecord() {
@@ -476,6 +483,101 @@ test("routine sync completion does not replace an active delete Undo action", as
   assert.equal(element("toastAction").textContent, "復原");
   element("toastAction").onclick();
   assert.deepEqual(api.getRecords(), [original]);
+});
+
+test("cloud state accepts legacy arrays and versioned envelopes", () => {
+  const { api } = loadApp();
+  const record = fuelRecord();
+
+  assert.equal(typeof api.parseCloudState, "function");
+  assert.deepEqual(JSON.parse(JSON.stringify(api.parseCloudState([record]))), {
+    records: [record],
+    fingerprint: "",
+    updatedAt: ""
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(api.parseCloudState({
+    records: [record],
+    fingerprint: "sheet-v2",
+    updatedAt: "2026-09-04T08:00:00.000Z"
+  }))), {
+    records: [record],
+    fingerprint: "sheet-v2",
+    updatedAt: "2026-09-04T08:00:00.000Z"
+  });
+});
+
+test("initial cloud read requests sync state and retains its fingerprint", async () => {
+  const calls = [];
+  const record = fuelRecord();
+  const { api } = loadApp({
+    fetchImpl: async url => {
+      calls.push(url);
+      return {
+        ok: true,
+        json: async () => ({ records: [record], fingerprint: "sheet-v2", updatedAt: "" })
+      };
+    }
+  });
+
+  assert.equal(typeof api.initData, "function");
+  await api.initData();
+
+  assert.match(calls[0], /\?action=syncState$/);
+  assert.deepEqual(api.getRecords(), [record]);
+  assert.equal(api.getLastCloudFingerprint(), "sheet-v2");
+});
+
+test("cloud writes use a guarded envelope and update the fingerprint", async () => {
+  const calls = [];
+  const record = fuelRecord();
+  const { api } = loadApp({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, json: async () => ({ status: "success", fingerprint: "sheet-v3" }) };
+    }
+  });
+  api.setLastCloudFingerprint("sheet-v2");
+
+  assert.equal(await api.syncToCloud([record]), true);
+  const payload = JSON.parse(calls[0].options.body);
+  assert.deepEqual(payload, {
+    records: [record],
+    expectedFingerprint: "sheet-v2",
+    allowDestructiveReplace: false,
+    reason: "save"
+  });
+  assert.equal(api.getLastCloudFingerprint(), "sheet-v3");
+});
+
+test("cloud conflicts keep the local copy and show an actionable warning", async () => {
+  const { api, element } = loadApp({
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ status: "conflict", message: "雲端資料已變更，請重新載入後再試。" })
+    })
+  });
+  api.setLastCloudFingerprint("sheet-v2");
+
+  assert.equal(await api.syncToCloud([fuelRecord()]), false);
+  assert.equal(api.getLastCloudFingerprint(), "sheet-v2");
+  assert.match(element("syncStatus").textContent, /雲端資料已變更/);
+  assert.match(element("syncStatus").textContent, /本機資料仍保留/);
+});
+
+test("confirmed restore explicitly allows a destructive cloud replacement", async () => {
+  let payload;
+  const { api } = loadApp({
+    fetchImpl: async (_url, options) => {
+      payload = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ status: "success", fingerprint: "restored-v1" }) };
+    }
+  });
+  api.setLastCloudFingerprint("sheet-v2");
+
+  await api.syncToCloud([fuelRecord()], { allowDestructiveReplace: true, reason: "restore" });
+
+  assert.equal(payload.allowDestructiveReplace, true);
+  assert.equal(payload.reason, "restore");
 });
 
 test("backup helpers validate the envelope and find only likely duplicates", () => {
