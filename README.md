@@ -18,18 +18,25 @@ Static GitHub Pages site for tracking the 2026 Superb Combi 4x4 maintenance reco
 
 ## Update Flow
 
-After editing `index.html`:
+After editing the frontend or sync backend:
 
 ```powershell
-node --test tests\index-html-ui.test.js
+node --test tests\index-html-ui.test.js tests\apps-script-sync-safety.test.js
 node -e "const fs=require('fs'); const html=fs.readFileSync('index.html','utf8'); const scripts=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]).filter(s=>s.trim()); for (const s of scripts) new Function(s); console.log('ok scripts', scripts.length);"
 git status
-git add index.html
+git add index.html apps-script/Code.js
 git commit -m "Describe the change"
 git push
 ```
 
 GitHub Pages usually updates within 1-2 minutes after `git push`.
+
+## Data Safety and Deployment
+
+- 每次同步會比對網頁最後讀到的雲端版本。若發生同步衝突，系統會停止覆寫並顯示警告，本機資料仍保留；重新載入確認雲端資料後再儲存即可。
+- 一般儲存不可清空全部紀錄，也不可一次刪除超過一半且超過 3 筆。只有使用者確認「還原備份」時，才會明確允許整批取代。
+- 每次成功覆寫 Google Sheet 前，Apps Script 會先把舊資料存入 `保養紀錄備份` 工作表，保留最近 20 個備份批次。備份建立失敗時不會清除原資料。
+- 發布同步格式變更時，先部署 Apps Script，確認 `?action=syncState` 可回傳資料與版本，再推送 `index.html` 到 GitHub Pages。
 
 ## Key UX Behavior
 

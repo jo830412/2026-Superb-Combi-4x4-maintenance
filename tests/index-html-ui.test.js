@@ -798,3 +798,15 @@ test("the README documents focused mobile and iPhone calendar verification", () 
   assert.match(readme, /7 天前.*1 天前/);
   assert.match(readme, /iPhone.*確認/);
 });
+
+test("the release documents sync conflicts server backups and deployment order", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+
+  assert.match(html, /const APP_VERSION = "v2026\.09\.04\.1"/);
+  assert.match(readme, /同步衝突/);
+  assert.match(readme, /本機資料仍保留/);
+  assert.match(readme, /保養紀錄備份/);
+  assert.match(readme, /最近 20/);
+  assert.match(readme, /先部署 Apps Script/);
+});

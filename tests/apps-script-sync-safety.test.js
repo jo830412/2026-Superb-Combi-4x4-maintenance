@@ -96,7 +96,7 @@ class FakeSheet {
   }
 }
 
-function loadAppsScript(initialRecords = []) {
+function loadAppsScript(initialRecords = [], { failBackupInsert = false } = {}) {
   const source = fs.readFileSync(path.join(__dirname, "..", "apps-script", "Code.js"), "utf8");
   const events = [];
   const sheets = new Map();
@@ -104,9 +104,13 @@ function loadAppsScript(initialRecords = []) {
   mainSheet.seedRecords(initialRecords);
   sheets.set(mainSheet.name, mainSheet);
   const properties = new Map();
+  let uuidCounter = 0;
   const spreadsheet = {
     getSheetByName(name) { return sheets.get(name) || null; },
     insertSheet(name) {
+      if (failBackupInsert && name === "保養紀錄備份") {
+        throw new Error("backup unavailable");
+      }
       const sheet = new FakeSheet(name, events);
       sheets.set(name, sheet);
       events.push({ type: "insertSheet", sheet: name });
@@ -137,7 +141,10 @@ function loadAppsScript(initialRecords = []) {
       computeDigest(_algorithm, value) {
         return [...crypto.createHash("sha256").update(value, "utf8").digest()];
       },
-      getUuid() { return "batch-uuid"; }
+      getUuid() {
+        uuidCounter += 1;
+        return `batch-${uuidCounter}`;
+      }
     },
     PropertiesService: {
       getScriptProperties() {
@@ -216,6 +223,49 @@ test("a matching fingerprint writes after creating a backup snapshot", () => {
   const backupSet = events.findIndex(event => event.type === "set" && event.sheet === "保養紀錄備份" && event.row >= 2);
   const mainClear = events.findIndex(event => event.type === "clear" && event.sheet === "保養紀錄");
   assert.ok(backupSet >= 0 && mainClear > backupSet, "backup must complete before the main sheet is cleared");
+});
+
+test("a backup failure stops the write before the main sheet is cleared", () => {
+  const current = [record(1), record(2), record(3), record(4)];
+  const loaded = loadAppsScript(current, { failBackupInsert: true });
+
+  const response = post(loaded.api, {
+    records: current.map(value => ({ ...value, note: "new" })),
+    expectedFingerprint: loaded.api.computeRecordsFingerprint_(current),
+    allowDestructiveReplace: false,
+    reason: "save"
+  });
+
+  assert.equal(response.status, "error");
+  assert.match(response.message, /backup unavailable/);
+  assert.deepEqual(plain(loaded.api.readRecords_(loaded.mainSheet)), current);
+  assert.equal(loaded.events.some(event => event.type === "clear"), false);
+});
+
+test("backup retention keeps only the newest twenty write batches", () => {
+  const initial = [record(1), record(2), record(3), record(4)];
+  const loaded = loadAppsScript(initial);
+  let current = initial;
+
+  for (let iteration = 1; iteration <= 21; iteration += 1) {
+    const incoming = current.map(value => ({ ...value, note: `write-${iteration}` }));
+    const response = post(loaded.api, {
+      records: incoming,
+      expectedFingerprint: loaded.api.computeRecordsFingerprint_(current),
+      allowDestructiveReplace: false,
+      reason: "save"
+    });
+    assert.equal(response.status, "success");
+    current = incoming;
+  }
+
+  const backupSheet = loaded.sheets.get("保養紀錄備份");
+  const batchIds = backupSheet.getRange(2, 2, backupSheet.getLastRow() - 1, 1)
+    .getDisplayValues()
+    .map(row => row[0]);
+  assert.equal(new Set(batchIds).size, 20);
+  assert.equal(batchIds.includes("batch-1"), false);
+  assert.equal(batchIds.includes("batch-21"), true);
 });
 
 test("a stale fingerprint returns conflict without backup or mutation", () => {
