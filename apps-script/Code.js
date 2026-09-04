@@ -4,6 +4,11 @@ const SHEET_NAME = "保養紀錄";
 const HEADER_ROW = 4;
 const DATA_START_ROW = 5;
 const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註"];
+const BACKUP_SHEET_NAME = "保養紀錄備份";
+const BACKUP_HEADERS = ["備份時間", "備份批次", "原因"].concat(HEADERS);
+const MAX_BACKUP_BATCHES = 20;
+const MAX_SYNC_RECORDS = 5000;
+const LAST_SYNC_AT_PROPERTY = "LAST_RECORD_SYNC_AT";
 const NPC_FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 
 function doGet(e) {
@@ -15,12 +20,23 @@ function doGet(e) {
 
   const sheet = getSheet();
   ensureHeaders(sheet);
+  const records = readRecords_(sheet);
+  const action = e && e.parameter && e.parameter.action;
 
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow < DATA_START_ROW) {
-    return createJsonResponse([]);
+  if (action === "syncState") {
+    return createJsonResponse({
+      records: records,
+      fingerprint: computeRecordsFingerprint_(records),
+      updatedAt: PropertiesService.getScriptProperties().getProperty(LAST_SYNC_AT_PROPERTY) || ""
+    });
   }
+
+  return createJsonResponse(records);
+}
+
+function readRecords_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < DATA_START_ROW) return [];
 
   const numRows = lastRow - DATA_START_ROW + 1;
   const data = sheet
@@ -42,7 +58,7 @@ function doGet(e) {
     });
   });
 
-  return createJsonResponse(records);
+  return records;
 }
 
 function doPost(e) {
@@ -57,22 +73,43 @@ function doPost(e) {
     const sheet = getSheet();
     ensureHeaders(sheet);
 
-    const postData = JSON.parse(e.postData.contents);
+    let postData;
+    try {
+      postData = JSON.parse(e && e.postData && e.postData.contents || "");
+    } catch (error) {
+      throw createSyncRejection_("同步內容不是有效的 JSON");
+    }
+    const sync = normalizeSyncPayload_(postData);
+    validateRecordPayload_(sync.records);
 
-    if (!Array.isArray(postData)) {
-      throw new Error("Invalid payload: expected an array");
+    const currentRecords = readRecords_(sheet);
+    const currentFingerprint = computeRecordsFingerprint_(currentRecords);
+    if (sync.expectedFingerprint && sync.expectedFingerprint !== currentFingerprint) {
+      return createJsonResponse({
+        status: "conflict",
+        message: "雲端資料已變更，請重新載入後再試。",
+        fingerprint: currentFingerprint,
+        count: currentRecords.length
+      });
+    }
+
+    validateDestructiveReplace_(currentRecords, sync.records, sync.allowDestructiveReplace);
+    const normalizedRecords = normalizeRecordsForStorage_(sync.records);
+
+    if (currentRecords.length > 0) {
+      createBackupSnapshot_(sheet, currentRecords, sync.reason);
     }
 
     clearDataRows(sheet);
 
-    if (postData.length > 0) {
-      const rows = postData.map(record => [
-        record.date || "",
-        record.mileage ?? "",
-        record.category || "",
-        record.cost ?? 0,
-        record.detail || "",
-        record.note || ""
+    if (normalizedRecords.length > 0) {
+      const rows = normalizedRecords.map(record => [
+        record.date,
+        record.mileage,
+        record.category,
+        record.cost,
+        record.detail,
+        record.note
       ]);
 
       sheet
@@ -80,19 +117,175 @@ function doPost(e) {
         .setValues(rows);
     }
 
+    const updatedAt = new Date().toISOString();
+    const fingerprint = computeRecordsFingerprint_(normalizedRecords);
+    PropertiesService.getScriptProperties().setProperty(LAST_SYNC_AT_PROPERTY, updatedAt);
+
     return createJsonResponse({
       status: "success",
-      count: postData.length,
-      updatedAt: new Date().toISOString()
+      count: normalizedRecords.length,
+      fingerprint: fingerprint,
+      updatedAt: updatedAt
     });
   } catch (err) {
     return createJsonResponse({
-      status: "error",
-      message: err.toString()
+      status: err && err.name === "SyncSafetyError" ? "rejected" : "error",
+      message: err && err.message ? err.message : String(err)
     });
   } finally {
     lock.releaseLock();
   }
+}
+
+function normalizeSyncPayload_(payload) {
+  if (Array.isArray(payload)) {
+    return {
+      records: payload,
+      expectedFingerprint: "",
+      allowDestructiveReplace: false,
+      reason: "legacy",
+      legacy: true
+    };
+  }
+  if (!payload || !Array.isArray(payload.records)) {
+    throw createSyncRejection_("同步內容缺少 records 陣列");
+  }
+  return {
+    records: payload.records,
+    expectedFingerprint: typeof payload.expectedFingerprint === "string" ? payload.expectedFingerprint : "",
+    allowDestructiveReplace: payload.allowDestructiveReplace === true,
+    reason: normalizeReason_(payload.reason),
+    legacy: false
+  };
+}
+
+function validateRecordPayload_(records) {
+  if (!Array.isArray(records)) throw createSyncRejection_("records 必須是陣列");
+  if (records.length > MAX_SYNC_RECORDS) {
+    throw createSyncRejection_("單次同步不可超過 " + MAX_SYNC_RECORDS + " 筆紀錄");
+  }
+
+  records.forEach(function(record, index) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) {
+      throw createSyncRejection_("第 " + (index + 1) + " 筆紀錄格式不正確");
+    }
+    ["date", "category", "detail", "note"].forEach(function(field) {
+      const value = record[field];
+      if (value != null && !["string", "number", "boolean"].includes(typeof value)) {
+        throw createSyncRejection_("第 " + (index + 1) + " 筆紀錄的 " + field + " 格式不正確");
+      }
+    });
+    validateNonNegativeInteger_(record.mileage, "里程", index);
+    validateNonNegativeInteger_(record.cost, "花費", index);
+  });
+}
+
+function validateNonNegativeInteger_(value, label, index) {
+  if (value === "" || value == null) return;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || !Number.isInteger(number)) {
+    throw createSyncRejection_("第 " + (index + 1) + " 筆紀錄的" + label + "必須是非負整數");
+  }
+}
+
+function normalizeRecordsForStorage_(records) {
+  return records.map(function(record) {
+    return {
+      date: normalizeText_(record.date),
+      mileage: record.mileage === "" || record.mileage == null ? null : Number(record.mileage),
+      category: normalizeText_(record.category),
+      cost: record.cost === "" || record.cost == null ? 0 : Number(record.cost),
+      detail: normalizeText_(record.detail),
+      note: normalizeText_(record.note)
+    };
+  });
+}
+
+function normalizeText_(value) {
+  return value == null ? "" : String(value);
+}
+
+function normalizeReason_(value) {
+  const reason = normalizeText_(value).trim();
+  return (reason || "save").slice(0, 80);
+}
+
+function computeRecordsFingerprint_(records) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    JSON.stringify(records),
+    Utilities.Charset.UTF_8
+  );
+  return digest.map(function(byte) {
+    return ((byte + 256) % 256).toString(16).padStart(2, "0");
+  }).join("");
+}
+
+function validateDestructiveReplace_(currentRecords, incomingRecords, allowDestructiveReplace) {
+  if (allowDestructiveReplace || currentRecords.length === 0) return;
+  if (incomingRecords.length === 0) {
+    throw createSyncRejection_("安全保護已阻止清空所有雲端紀錄；請使用備份還原功能確認覆寫。");
+  }
+  const removedCount = currentRecords.length - incomingRecords.length;
+  const removedRatio = removedCount / currentRecords.length;
+  if (removedCount > 3 && removedRatio > 0.5) {
+    throw createSyncRejection_("安全保護已阻止一次刪除過多紀錄；請使用備份還原功能確認覆寫。");
+  }
+}
+
+function createBackupSnapshot_(sheet, records, reason) {
+  if (!records.length) return;
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let backupSheet = spreadsheet.getSheetByName(BACKUP_SHEET_NAME);
+  if (!backupSheet) backupSheet = spreadsheet.insertSheet(BACKUP_SHEET_NAME);
+
+  backupSheet.getRange(1, 1, 1, BACKUP_HEADERS.length).setValues([BACKUP_HEADERS]);
+  const timestamp = new Date().toISOString();
+  const batchId = Utilities.getUuid();
+  const normalizedReason = normalizeReason_(reason);
+  const rows = normalizeRecordsForStorage_(records).map(function(record) {
+    return [
+      timestamp,
+      batchId,
+      normalizedReason,
+      record.date,
+      record.mileage,
+      record.category,
+      record.cost,
+      record.detail,
+      record.note
+    ];
+  });
+  const startRow = Math.max(2, backupSheet.getLastRow() + 1);
+  backupSheet.getRange(startRow, 1, rows.length, BACKUP_HEADERS.length).setValues(rows);
+  pruneBackupSnapshots_(backupSheet);
+}
+
+function pruneBackupSnapshots_(backupSheet) {
+  const lastRow = backupSheet.getLastRow();
+  if (lastRow < 2) return;
+  const batchIds = backupSheet.getRange(2, 2, lastRow - 1, 1)
+    .getDisplayValues()
+    .map(function(row) { return row[0]; });
+  const retained = {};
+  let retainedCount = 0;
+  for (let index = batchIds.length - 1; index >= 0; index -= 1) {
+    const batchId = batchIds[index];
+    if (!retained[batchId]) {
+      if (retainedCount >= MAX_BACKUP_BATCHES) {
+        backupSheet.deleteRows(2, index + 1);
+        return;
+      }
+      retained[batchId] = true;
+      retainedCount += 1;
+    }
+  }
+}
+
+function createSyncRejection_(message) {
+  const error = new Error(message);
+  error.name = "SyncSafetyError";
+  return error;
 }
 
 function getSheet() {
