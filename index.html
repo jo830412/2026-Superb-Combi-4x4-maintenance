@@ -594,6 +594,68 @@ body {
   color: var(--text-muted);
   font-size: 0.72rem;
 }
+.data-quality-section {
+  max-width: 1200px;
+  margin: 16px auto 0;
+  padding: 0 24px;
+}
+.data-quality-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+}
+.data-quality-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.data-quality-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.data-quality-summary {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-align: right;
+}
+.data-quality-list {
+  display: grid;
+  gap: 8px;
+}
+.data-quality-item {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-sm);
+  background: rgba(210,153,34,0.08);
+  padding: 12px;
+}
+.data-quality-item strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+.data-quality-item span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.data-quality-empty {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+.data-quality-flag {
+  display: inline-block;
+  margin-top: 3px;
+  color: var(--orange);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
 
 /* ============================================================
    Charts
@@ -1555,7 +1617,7 @@ body {
   .stats-section {
     margin-top: 18px;
   }
-  .stats-section, .trackers-section, .charts-section, .filter-section, .records-section { padding: 0 16px; }
+  .stats-section, .trackers-section, .charts-section, .filter-section, .records-section, .data-quality-section { padding: 0 16px; }
   .fuel-log-section { padding: 0 16px; }
   .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .trackers-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -1929,6 +1991,10 @@ body {
       </div>
       <div class="ownership-grid" id="ownershipCostGrid"></div>
     </div>
+  </section>
+
+  <section class="data-quality-section" aria-label="資料檢查">
+    <div class="data-quality-panel" id="dataQualityPanel" aria-live="polite"></div>
   </section>
 
   <!-- 耗材提醒區 -->
@@ -3164,6 +3230,76 @@ function getFuelStats() {
     latestKmPerLiter: segments.length ? segments[segments.length - 1].kmPerLiter : null
   };
 }
+function getMedian(values) {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+function getFuelSegmentQuality(segment, medianKmPerLiter) {
+  const value = Number(segment?.kmPerLiter);
+  if (!Number.isFinite(value) || !Number.isFinite(medianKmPerLiter) || medianKmPerLiter <= 0) {
+    return { suspicious: false, reason: "" };
+  }
+
+  const high = value > 18 || value > medianKmPerLiter * 1.45;
+  const low = value < 5 || value < medianKmPerLiter * 0.70;
+  if (!high && !low) return { suspicious: false, reason: "" };
+
+  return {
+    suspicious: true,
+    reason: high
+      ? "明顯高於其他加滿區間"
+      : "明顯低於其他加滿區間"
+  };
+}
+function getMileageRegressionIssues() {
+  const mileageByDate = new Map();
+  records.forEach(record => {
+    const mileage = Number(record?.mileage);
+    if (!record?.date || !Number.isFinite(mileage) || mileage <= 0) return;
+    const current = mileageByDate.get(record.date);
+    mileageByDate.set(record.date, current == null ? mileage : Math.max(current, mileage));
+  });
+
+  let priorMax = null;
+  return [...mileageByDate.entries()]
+    .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+    .flatMap(([date, mileage]) => {
+      const issue = priorMax != null && mileage < priorMax
+        ? [{
+            type: "mileage-regression",
+            date,
+            title: "里程比前一筆紀錄低",
+            detail: `${date} 為 ${mileage.toLocaleString("zh-TW")} km，低於先前的 ${priorMax.toLocaleString("zh-TW")} km。請確認日期或里程。`,
+            key: `mileage|${date}|${mileage}`
+          }]
+        : [];
+      priorMax = priorMax == null ? mileage : Math.max(priorMax, mileage);
+      return issue;
+    });
+}
+function getDataQualityIssues() {
+  const issues = getMileageRegressionIssues();
+  const fuelStats = getFuelStats();
+  if (fuelStats.segments.length < 5) return issues;
+
+  const medianKmPerLiter = getMedian(fuelStats.segments.map(segment => segment.kmPerLiter));
+  fuelStats.segments.forEach(segment => {
+    const quality = getFuelSegmentQuality(segment, medianKmPerLiter);
+    if (!quality.suspicious) return;
+    issues.push({
+      type: "fuel-outlier",
+      date: segment.date,
+      title: "油耗區間待確認",
+      detail: `${segment.date} 計算為 ${segment.kmPerLiter.toFixed(1)} km/L，${quality.reason}。請確認里程、是否漏登加油，或是否真的加滿。`,
+      key: `fuel|${segment.date}|${segment.mileage}`
+    });
+  });
+  return issues;
+}
 function recordMatchesTerms(r, terms) {
   if (isMileageUpdateRecord(r)) return false;
   const text = `${r.category || ""} ${r.detail || ""} ${r.note || ""}`;
@@ -4017,6 +4153,27 @@ function runOwnerAction(action) {
   }
 }
 
+const OWNERSHIP_CATEGORY_BUCKETS = Object.freeze({
+  保養: "service",
+  維修: "service",
+  更換: "service",
+  加油: "fuel",
+  保險: "legal",
+  "檢驗/稅費": "legal",
+  改裝升級: "accessory"
+});
+
+function getOwnershipCostBucketKey(record, buckets) {
+  const explicitKey = OWNERSHIP_CATEGORY_BUCKETS[record.category];
+  if (explicitKey) return explicitKey;
+
+  const text = `${record.category || ""} ${record.detail || ""} ${record.note || ""}`;
+  const inferred = buckets.find(item =>
+    item.key !== "other" && item.terms.some(term => text.includes(term))
+  );
+  return inferred ? inferred.key : "other";
+}
+
 function getOwnershipCostBuckets() {
   const buckets = [
     {
@@ -4052,8 +4209,8 @@ function getOwnershipCostBuckets() {
   ];
 
   getCostRecords().forEach(record => {
-    const text = `${record.category || ""} ${record.detail || ""} ${record.note || ""}`;
-    const bucket = buckets.find(item => item.terms.some(term => text.includes(term))) || buckets[buckets.length - 1];
+    const bucketKey = getOwnershipCostBucketKey(record, buckets);
+    const bucket = buckets.find(item => item.key === bucketKey) || buckets[buckets.length - 1];
     bucket.total += asNumber(record.cost);
   });
 
@@ -4103,6 +4260,29 @@ function renderOwnershipCostPanel() {
       </div>
     `;
   }).join("");
+}
+
+function renderDataQualityPanel() {
+  const panel = document.getElementById("dataQualityPanel");
+  if (!panel) return;
+  const issues = getDataQualityIssues().sort((a, b) => b.date.localeCompare(a.date));
+  const summary = issues.length ? `${issues.length} 項待確認` : "未發現明顯異常";
+  const content = issues.length
+    ? `<div class="data-quality-list">${issues.map(issue => `
+        <div class="data-quality-item">
+          <strong>${escapeHtml(issue.title)}</strong>
+          <span>${escapeHtml(issue.detail)}</span>
+        </div>
+      `).join("")}</div>`
+    : `<div class="data-quality-empty">目前的日期、里程與加滿油耗區間沒有明顯異常。</div>`;
+
+  panel.innerHTML = `
+    <div class="data-quality-header">
+      <h2 class="data-quality-title">資料檢查</h2>
+      <div class="data-quality-summary">${escapeHtml(summary)}</div>
+    </div>
+    ${content}
+  `;
 }
 
 function renderConsumableTrackers() {
@@ -5793,6 +5973,11 @@ function renderFuelLogSection() {
   const segmentMap = new Map(
     fuelStats.segments.map(segment => [`${segment.date}|${segment.mileage}`, segment])
   );
+  const suspiciousFuelKeys = new Set(
+    getDataQualityIssues()
+      .filter(issue => issue.type === "fuel-outlier")
+      .map(issue => issue.key)
+  );
 
   if (!logs.length) {
     tbody.innerHTML = "";
@@ -5812,6 +5997,7 @@ function renderFuelLogSection() {
 
   tbody.innerHTML = logs.map(log => {
     const segment = segmentMap.get(`${log.date}|${log.mileage}`);
+    const needsReview = segment && suspiciousFuelKeys.has(`fuel|${segment.date}|${segment.mileage}`);
     const kmPerLiter = segment
       ? `${segment.kmPerLiter.toFixed(1)} km/L`
       : (log.fullTank ? "基準" : "—");
@@ -5825,7 +6011,7 @@ function renderFuelLogSection() {
         <td data-label="折抵">${formatNumberOrDash(log.discount, 1)}</td>
         <td data-label="實付/L">${formatNumberOrDash(log.netPrice, 1)}</td>
         <td data-label="油費">${formatCost(log.cost)}</td>
-        <td data-label="油耗">${kmPerLiter}</td>
+        <td data-label="油耗"><span>${kmPerLiter}</span>${needsReview ? '<span class="data-quality-flag">待確認</span>' : ""}</td>
         <td data-label="備註">${escapeHtml(log.note || "")}</td>
       </tr>
     `;
@@ -5840,6 +6026,7 @@ function refresh() {
   renderOwnerDashboard();
   renderOverviewRecentRecords();
   renderOwnershipCostPanel();
+  renderDataQualityPanel();
   renderConsumableTrackers();
   renderFuelLogSection();
   populateYearFilter();

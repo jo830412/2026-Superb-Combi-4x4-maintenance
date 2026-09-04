@@ -76,7 +76,7 @@ function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
     window: {}
   };
   vm.createContext(context);
-  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, updateStats: typeof updateStats === "function" ? updateStats : null, buildOwnerActions: typeof buildOwnerActions === "function" ? buildOwnerActions : null, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, updateFilterSummary: typeof updateFilterSummary === "function" ? updateFilterSummary : null, trapModalFocus: typeof trapModalFocus === "function" ? trapModalFocus : null, openQuickEntryMenu: typeof openQuickEntryMenu === "function" ? openQuickEntryMenu : null, closeQuickEntryMenu: typeof closeQuickEntryMenu === "function" ? closeQuickEntryMenu : null, setDocumentActiveElement: value => { document.activeElement = value; }, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
+  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, updateStats: typeof updateStats === "function" ? updateStats : null, buildOwnerActions: typeof buildOwnerActions === "function" ? buildOwnerActions : null, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, updateFilterSummary: typeof updateFilterSummary === "function" ? updateFilterSummary : null, trapModalFocus: typeof trapModalFocus === "function" ? trapModalFocus : null, openQuickEntryMenu: typeof openQuickEntryMenu === "function" ? openQuickEntryMenu : null, closeQuickEntryMenu: typeof closeQuickEntryMenu === "function" ? closeQuickEntryMenu : null, setDocumentActiveElement: value => { document.activeElement = value; }, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getOwnershipCostBuckets: typeof getOwnershipCostBuckets === "function" ? getOwnershipCostBuckets : null, getDataQualityIssues: typeof getDataQualityIssues === "function" ? getDataQualityIssues : null, renderDataQualityPanel: typeof renderDataQualityPanel === "function" ? renderDataQualityPanel : null, renderFuelLogSection: typeof renderFuelLogSection === "function" ? renderFuelLogSection : null, getFuelStats: typeof getFuelStats === "function" ? getFuelStats : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
   return { api: context.__testApi, element: getElement };
 }
 
@@ -569,6 +569,109 @@ test("invalid restore files preserve current records and show an error", () => {
   assert.equal(api.stageBackupRestore(JSON.stringify({ format: "wrong", version: 1, records: [] })).ok, false);
   assert.deepEqual(api.getRecords(), original);
   assert.match(element("toastMessage").textContent, /備份檔無法還原/);
+});
+
+test("explicit categories win over ownership keyword inference", () => {
+  const { api } = loadApp();
+  api.setRecords([{
+    date: "2026-06-18",
+    mileage: 1250,
+    category: "改裝升級",
+    cost: 10000,
+    detail: "Evo模塊、離手、外置濾網",
+    note: ""
+  }]);
+
+  const buckets = Object.fromEntries(
+    api.getOwnershipCostBuckets().map(item => [item.key, item.total])
+  );
+
+  assert.equal(buckets.service, 0);
+  assert.equal(buckets.accessory, 10000);
+});
+
+test("data quality reports a mileage regression by date", () => {
+  const { api } = loadApp();
+  api.setRecords([
+    { date: "2026-07-02", mileage: 2000, category: "加油", cost: 1694, detail: "加油｜98｜52.78 L｜加滿", note: "" },
+    { date: "2026-07-03", mileage: 1981, category: "其他", cost: 0, detail: "目前里程更新", note: "用於儀表板里程計算" }
+  ]);
+
+  assert.equal(typeof api.getDataQualityIssues, "function");
+  const issue = api.getDataQualityIssues().find(item => item.type === "mileage-regression");
+  assert.equal(issue.date, "2026-07-03");
+  assert.match(issue.detail, /1,981 km/);
+  assert.match(issue.detail, /2,000 km/);
+});
+
+test("data quality flags a fuel outlier without changing the fuel average", () => {
+  const { api } = loadApp();
+  const fuel = (date, mileage, liters) => ({
+    date,
+    mileage,
+    category: "加油",
+    cost: Math.round(liters * 32),
+    detail: `加油｜98｜${liters.toFixed(2)} L｜加滿｜牌告 34.0 元/L｜優惠 2.0 元/L｜實付 32.0 元/L`,
+    note: "全國加油站自助"
+  });
+  api.setRecords([
+    fuel("2026-01-01", 100, 50),
+    fuel("2026-01-08", 650, 50),
+    fuel("2026-01-15", 1200, 50),
+    fuel("2026-01-22", 1750, 50),
+    fuel("2026-01-29", 2300, 50),
+    fuel("2026-02-05", 2850, 50),
+    fuel("2026-02-12", 3735, 50)
+  ]);
+
+  assert.equal(typeof api.getDataQualityIssues, "function");
+  const averageBefore = api.getFuelStats().averageKmPerLiter;
+  const issue = api.getDataQualityIssues().find(item => item.type === "fuel-outlier");
+
+  assert.equal(issue.date, "2026-02-12");
+  assert.match(issue.detail, /17\.7 km\/L/);
+  assert.equal(api.getFuelStats().averageKmPerLiter, averageBefore);
+});
+
+test("data quality panel renders actionable text instead of color-only warnings", () => {
+  const { api, element } = loadApp();
+  api.setRecords([
+    { date: "2026-07-02", mileage: 2000, category: "加油", cost: 1694, detail: "加油｜98｜52.78 L｜加滿", note: "" },
+    { date: "2026-07-03", mileage: 1981, category: "其他", cost: 0, detail: "目前里程更新", note: "" }
+  ]);
+
+  assert.equal(typeof api.renderDataQualityPanel, "function");
+  api.renderDataQualityPanel();
+
+  assert.match(element("dataQualityPanel").innerHTML, /1 項待確認/);
+  assert.match(element("dataQualityPanel").innerHTML, /里程比前一筆紀錄低/);
+  assert.match(element("dataQualityPanel").innerHTML, /請確認日期或里程/);
+});
+
+test("fuel analysis labels suspicious consumption as pending review", () => {
+  const { api, element } = loadApp();
+  const fuel = (date, mileage, liters) => ({
+    date,
+    mileage,
+    category: "加油",
+    cost: Math.round(liters * 32),
+    detail: `加油｜98｜${liters.toFixed(2)} L｜加滿`,
+    note: ""
+  });
+  api.setRecords([
+    fuel("2026-01-01", 100, 50),
+    fuel("2026-01-08", 650, 50),
+    fuel("2026-01-15", 1200, 50),
+    fuel("2026-01-22", 1750, 50),
+    fuel("2026-01-29", 2300, 50),
+    fuel("2026-02-05", 2850, 50),
+    fuel("2026-02-12", 3735, 50)
+  ]);
+
+  api.renderFuelLogSection();
+
+  assert.match(element("fuelLogTableBody").innerHTML, /17\.7 km\/L/);
+  assert.match(element("fuelLogTableBody").innerHTML, /待確認/);
 });
 
 test("the README documents the UI regression command and fuel editing behavior", () => {
