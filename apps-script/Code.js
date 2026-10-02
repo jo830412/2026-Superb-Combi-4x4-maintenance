@@ -4,12 +4,18 @@ const SHEET_NAME = "保養紀錄";
 const HEADER_ROW = 4;
 const DATA_START_ROW = 5;
 const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註"];
+// 類別、詳細內容、備註存成純文字，避免「3/4」被轉成日期、「0912…」被轉成數字。
+const TEXT_COLUMNS = [3, 5, 6];
 const BACKUP_SHEET_NAME = "保養紀錄備份";
 const BACKUP_HEADERS = ["備份時間", "備份批次", "原因"].concat(HEADERS);
+const BACKUP_TEXT_COLUMNS = [6, 8, 9];
 const MAX_BACKUP_BATCHES = 20;
 const MAX_SYNC_RECORDS = 5000;
 const LAST_SYNC_AT_PROPERTY = "LAST_RECORD_SYNC_AT";
 const NPC_FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
+const FUEL_PRICE_CACHE_KEY = "npcFuelPrices_v1";
+const FUEL_PRICE_CACHE_MAX_SECONDS = 3 * 60 * 60;
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 function doGet(e) {
   const aiResponse = routeAiRecordAssistantGet_(e);
@@ -27,7 +33,7 @@ function doGet(e) {
     return createJsonResponse({
       records: records,
       fingerprint: computeRecordsFingerprint_(records),
-      updatedAt: PropertiesService.getScriptProperties().getProperty(LAST_SYNC_AT_PROPERTY) || ""
+      updatedAt: getLastSyncAt_()
     });
   }
 
@@ -84,7 +90,7 @@ function doPost(e) {
 
     const currentRecords = readRecords_(sheet);
     const currentFingerprint = computeRecordsFingerprint_(currentRecords);
-    if (sync.expectedFingerprint && sync.expectedFingerprint !== currentFingerprint) {
+    if (sync.expectedFingerprint !== currentFingerprint) {
       return createJsonResponse({
         status: "conflict",
         message: "雲端資料已變更，請重新載入後再試。",
@@ -93,38 +99,36 @@ function doPost(e) {
       });
     }
 
-    validateDestructiveReplace_(currentRecords, sync.records, sync.allowDestructiveReplace);
     const normalizedRecords = normalizeRecordsForStorage_(sync.records);
+    if (computeRecordsFingerprint_(normalizedRecords) === currentFingerprint) {
+      // 內容與雲端相同：不寫入、不佔用備份批次。
+      return createJsonResponse({
+        status: "success",
+        unchanged: true,
+        count: currentRecords.length,
+        fingerprint: currentFingerprint,
+        updatedAt: getLastSyncAt_()
+      });
+    }
+
+    validateDestructiveReplace_(currentRecords, normalizedRecords, sync.allowDestructiveReplace);
 
     if (currentRecords.length > 0) {
-      createBackupSnapshot_(sheet, currentRecords, sync.reason);
+      createBackupSnapshot_(currentRecords, sync.reason);
     }
 
-    clearDataRows(sheet);
+    writeRecords_(sheet, normalizedRecords);
+    SpreadsheetApp.flush();
 
-    if (normalizedRecords.length > 0) {
-      const rows = normalizedRecords.map(record => [
-        record.date,
-        record.mileage,
-        record.category,
-        record.cost,
-        record.detail,
-        record.note
-      ]);
-
-      sheet
-        .getRange(DATA_START_ROW, 1, rows.length, HEADERS.length)
-        .setValues(rows);
-    }
-
+    // 以實際寫入後的內容計算指紋，確保與下一次 syncState 一致。
+    const storedRecords = readRecords_(sheet);
     const updatedAt = new Date().toISOString();
-    const fingerprint = computeRecordsFingerprint_(normalizedRecords);
     PropertiesService.getScriptProperties().setProperty(LAST_SYNC_AT_PROPERTY, updatedAt);
 
     return createJsonResponse({
       status: "success",
-      count: normalizedRecords.length,
-      fingerprint: fingerprint,
+      count: storedRecords.length,
+      fingerprint: computeRecordsFingerprint_(storedRecords),
       updatedAt: updatedAt
     });
   } catch (err) {
@@ -139,23 +143,22 @@ function doPost(e) {
 
 function normalizeSyncPayload_(payload) {
   if (Array.isArray(payload)) {
-    return {
-      records: payload,
-      expectedFingerprint: "",
-      allowDestructiveReplace: false,
-      reason: "legacy",
-      legacy: true
-    };
+    throw createSyncRejection_("同步格式已更新，請重新整理網頁後再儲存。");
   }
   if (!payload || !Array.isArray(payload.records)) {
     throw createSyncRejection_("同步內容缺少 records 陣列");
   }
+  const expectedFingerprint = typeof payload.expectedFingerprint === "string"
+    ? payload.expectedFingerprint.trim()
+    : "";
+  if (!expectedFingerprint) {
+    throw createSyncRejection_("同步內容缺少雲端版本，請重新整理網頁後再儲存。");
+  }
   return {
     records: payload.records,
-    expectedFingerprint: typeof payload.expectedFingerprint === "string" ? payload.expectedFingerprint : "",
+    expectedFingerprint: expectedFingerprint,
     allowDestructiveReplace: payload.allowDestructiveReplace === true,
-    reason: normalizeReason_(payload.reason),
-    legacy: false
+    reason: normalizeReason_(payload.reason)
   };
 }
 
@@ -233,7 +236,7 @@ function validateDestructiveReplace_(currentRecords, incomingRecords, allowDestr
   }
 }
 
-function createBackupSnapshot_(sheet, records, reason) {
+function createBackupSnapshot_(records, reason) {
   if (!records.length) return;
   const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
   let backupSheet = spreadsheet.getSheetByName(BACKUP_SHEET_NAME);
@@ -257,6 +260,10 @@ function createBackupSnapshot_(sheet, records, reason) {
     ];
   });
   const startRow = Math.max(2, backupSheet.getLastRow() + 1);
+  ensureRowCapacity_(backupSheet, startRow + rows.length - 1);
+  BACKUP_TEXT_COLUMNS.forEach(function(column) {
+    backupSheet.getRange(startRow, column, rows.length, 1).setNumberFormat("@");
+  });
   backupSheet.getRange(startRow, 1, rows.length, BACKUP_HEADERS.length).setValues(rows);
   pruneBackupSnapshots_(backupSheet);
 }
@@ -300,16 +307,52 @@ function getSheet() {
 }
 
 function ensureHeaders(sheet) {
-  sheet.getRange(HEADER_ROW, 1, 1, HEADERS.length).setValues([HEADERS]);
+  const range = sheet.getRange(HEADER_ROW, 1, 1, HEADERS.length);
+  const current = range.getDisplayValues()[0] || [];
+  if (HEADERS.some((header, index) => current[index] !== header)) {
+    range.setValues([HEADERS]);
+  }
 }
 
-function clearDataRows(sheet) {
-  const maxRows = sheet.getMaxRows();
-  const numRows = maxRows - DATA_START_ROW + 1;
+// 先寫入新資料再清掉多出來的舊列，寫入過程中工作表不會出現空白。
+function writeRecords_(sheet, records) {
+  const rows = records.map(record => [
+    record.date,
+    record.mileage,
+    record.category,
+    record.cost,
+    record.detail,
+    record.note
+  ]);
+  const previousLastRow = sheet.getLastRow();
 
-  if (numRows > 0) {
-    sheet.getRange(DATA_START_ROW, 1, numRows, HEADERS.length).clearContent();
+  if (rows.length > 0) {
+    ensureRowCapacity_(sheet, DATA_START_ROW + rows.length - 1);
+    TEXT_COLUMNS.forEach(column => {
+      sheet.getRange(DATA_START_ROW, column, rows.length, 1).setNumberFormat("@");
+    });
+    sheet
+      .getRange(DATA_START_ROW, 1, rows.length, HEADERS.length)
+      .setValues(rows);
   }
+
+  const firstStaleRow = DATA_START_ROW + rows.length;
+  if (previousLastRow >= firstStaleRow) {
+    sheet
+      .getRange(firstStaleRow, 1, previousLastRow - firstStaleRow + 1, HEADERS.length)
+      .clearContent();
+  }
+}
+
+function ensureRowCapacity_(sheet, lastNeededRow) {
+  const maxRows = sheet.getMaxRows();
+  if (lastNeededRow > maxRows) {
+    sheet.insertRowsAfter(maxRows, lastNeededRow - maxRows);
+  }
+}
+
+function getLastSyncAt_() {
+  return PropertiesService.getScriptProperties().getProperty(LAST_SYNC_AT_PROPERTY) || "";
 }
 
 function parseNumber(value, fallback) {
@@ -335,8 +378,13 @@ function routeFuelPriceGet_(e) {
   const action = e && e.parameter && e.parameter.action;
   if (action !== "fuelPrice") return null;
 
+  const cached = readFuelPriceCache_();
+  if (cached) return createJsonResponse(cached);
+
   try {
-    return createJsonResponse(fetchNpcFuelPrices_());
+    const prices = fetchNpcFuelPrices_();
+    writeFuelPriceCache_(prices, new Date());
+    return createJsonResponse(prices);
   } catch (err) {
     return createJsonResponse({
       ok: false,
@@ -344,6 +392,39 @@ function routeFuelPriceGet_(e) {
       message: err && err.message ? err.message : String(err)
     });
   }
+}
+
+function readFuelPriceCache_() {
+  try {
+    const raw = CacheService.getScriptCache().get(FUEL_PRICE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeFuelPriceCache_(prices, now) {
+  try {
+    const seconds = getFuelPriceCacheSeconds_(now);
+    if (seconds > 0) {
+      CacheService.getScriptCache().put(FUEL_PRICE_CACHE_KEY, JSON.stringify(prices), seconds);
+    }
+  } catch (err) {
+    // 快取只是加速，失敗時直接回傳即時抓到的油價。
+  }
+}
+
+// 牌價每週一 00:00（台灣時間）調整；快取最多 3 小時，且不跨過下一次調價。
+function getFuelPriceCacheSeconds_(now) {
+  const taipei = new Date(now.getTime() + TAIPEI_OFFSET_MS);
+  const daysUntilMonday = (8 - taipei.getUTCDay()) % 7 || 7;
+  const nextChange = Date.UTC(
+    taipei.getUTCFullYear(),
+    taipei.getUTCMonth(),
+    taipei.getUTCDate() + daysUntilMonday
+  ) - TAIPEI_OFFSET_MS;
+  const secondsUntilChange = Math.floor((nextChange - now.getTime()) / 1000);
+  return Math.max(0, Math.min(FUEL_PRICE_CACHE_MAX_SECONDS, secondsUntilChange));
 }
 
 function fetchNpcFuelPrices_() {
