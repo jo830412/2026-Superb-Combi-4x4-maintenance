@@ -2,12 +2,19 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Superb 保養" />
   <title>🚗 2026 Superb Combi 4x4 保養維修紀錄</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2358a6ff'/%3E%3Cpath d='M14 38h36l-4-12H18zM18 38v8m28-8v8M21 46h5m12 0h5' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=2026.09.04.1" />
+  <link rel="stylesheet" href="styles.css?v=2026.10.02.1" />
 </head>
 <body>
   <!-- 頂部導覽列 -->
@@ -19,7 +26,7 @@
           <h1 class="logo-title">2026 Superb Combi 4x4 保養維修紀錄</h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.08.07.1</span>
+            <span class="version-badge" id="appVersion">v2026.10.02.1</span>
           </div>
         </div>
       </div>
@@ -32,13 +39,12 @@
         </button>
       </div>
     </div>
+    <nav class="app-tabs" aria-label="主要內容">
+      <button class="app-tab is-active" type="button" data-view="overview" aria-pressed="true">總覽</button>
+      <button class="app-tab" type="button" data-view="records" aria-pressed="false">紀錄</button>
+      <button class="app-tab" type="button" data-view="analysis" aria-pressed="false">分析</button>
+    </nav>
   </header>
-
-  <nav class="app-tabs" aria-label="主要內容">
-    <button class="app-tab is-active" type="button" data-view="overview" aria-pressed="true">總覽</button>
-    <button class="app-tab" type="button" data-view="records" aria-pressed="false">紀錄</button>
-    <button class="app-tab" type="button" data-view="analysis" aria-pressed="false">分析</button>
-  </nav>
   <main>
   <div class="app-view" id="overviewView">
 
@@ -48,10 +54,11 @@
       <div><strong id="statCurrentMileage">—</strong><span>km</span></div>
       <button class="btn btn-ghost btn-sm" id="btnUpdateMileage" type="button">更新里程</button>
     </div>
-    <div class="dashboard-next-service">
-      <span>下次保養建議</span>
+    <div class="dashboard-next-service" id="dashboardNextService">
+      <span>下次保養（每 7,500 km 或 12 個月）</span>
       <strong id="statNextMaintenance">—</strong>
-      <small>依目前保養紀錄推估</small>
+      <div class="maintenance-progress" id="maintenanceProgress" role="progressbar" aria-label="距離下次保養的里程" aria-valuemin="0" aria-valuemax="7500" aria-valuenow="0" hidden><span id="maintenanceProgressBar"></span></div>
+      <small id="statNextMaintenanceMeta">依目前保養紀錄推估</small>
     </div>
   </section>
 
@@ -176,6 +183,7 @@
         <button class="btn btn-ghost" id="btnExport" type="button">下載 CSV</button>
         <button class="btn btn-ghost" id="btnBackupExport" type="button">備份 JSON</button>
         <button class="btn btn-ghost" id="btnBackupRestore" type="button">還原備份</button>
+        <button class="btn btn-ghost" id="btnLegacyStashDownload" type="button" hidden>下載升級前的本機資料</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
     </details>
@@ -204,9 +212,16 @@
           <h2 class="fuel-log-title">加油分析</h2>
           <div class="fuel-log-summary" id="fuelLogSummary">尚無加油資料</div>
         </div>
+        <div class="fuel-trend" id="fuelTrend" hidden>
+          <div class="fuel-trend-header">
+            <h3 class="fuel-trend-title">油耗走勢（km/L，每次加滿）</h3>
+            <div class="fuel-trend-summary" id="fuelTrendSummary"></div>
+          </div>
+          <div class="fuel-trend-canvas"><canvas id="fuelTrendChart" role="img" aria-label="每次加滿的油耗走勢，數值見下方表格"></canvas></div>
+        </div>
         <div class="fuel-log-table-wrap">
           <table class="fuel-log-table">
-            <thead><tr><th>日期</th><th>油品</th><th>里程</th><th>公升</th><th>牌告</th><th>折抵</th><th>實付/L</th><th>油費</th><th>油耗</th><th>備註</th></tr></thead>
+            <thead><tr><th>日期</th><th>油品</th><th>里程</th><th>公升</th><th>牌告</th><th>折抵</th><th>實付/L</th><th>油費</th><th>油耗</th><th>每公里</th><th>備註</th></tr></thead>
             <tbody id="fuelLogTableBody"></tbody>
           </table>
         </div>
@@ -218,7 +233,7 @@
   </main>
 
   <!-- 新增/編輯 Modal -->
-  <div id="modal" class="modal-overlay" style="display:none;">
+  <div id="modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" style="display:none;">
     <div class="modal">
       <div class="modal-header">
         <h2 id="modalTitle">新增保養/維修紀錄</h2>
@@ -234,7 +249,7 @@
             </div>
             <div class="form-group">
               <label class="form-label" for="formMileage">里程 (km)</label>
-              <input type="number" id="formMileage" class="form-input" placeholder="例：120000" min="0" step="1"/>
+              <input type="text" id="formMileage" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="例：120000"/>
               <div class="form-help" id="mileageHint"></div>
             </div>
             <div class="form-group">
@@ -253,7 +268,7 @@
             </div>
             <div class="form-group">
               <label class="form-label" for="formCost">費用 (NT$)</label>
-              <input type="number" id="formCost" class="form-input" placeholder="0" min="0"/>
+              <input type="text" id="formCost" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="0"/>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label" for="formTemplate">常用項目</label>
@@ -292,10 +307,10 @@
   </div>
 
   <!-- 目前里程更新 Modal -->
-  <div id="mileageModal" class="modal-overlay" style="display:none;">
+  <div id="mileageModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mileageModalTitle" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h2>更新目前里程</h2>
+        <h2 id="mileageModalTitle">更新目前里程</h2>
         <button class="modal-close" id="mileageModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
@@ -303,7 +318,7 @@
           <div class="form-grid">
             <div class="form-group form-group-full">
               <label class="form-label" for="currentMileageInput">目前里程 (km) <span class="required">*</span></label>
-              <input type="number" id="currentMileageInput" class="form-input" min="0" step="1" placeholder="例：123456" required/>
+              <input type="text" id="currentMileageInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="例：123456" required/>
               <div class="form-help" id="currentMileageHint"></div>
             </div>
             <div class="form-message" id="mileageMessage"></div>
@@ -318,10 +333,10 @@
   </div>
 
   <!-- 照片辨識 Modal -->
-  <div id="photoModal" class="modal-overlay" style="display:none;">
+  <div id="photoModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="photoModalTitle" style="display:none;">
     <div class="modal">
       <div class="modal-header">
-        <h2>讀取照片新增紀錄</h2>
+        <h2 id="photoModalTitle">讀取照片新增紀錄</h2>
         <button class="modal-close" id="photoModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
@@ -362,10 +377,10 @@
   </div>
 
   <!-- AI 紀錄助手 Modal -->
-  <div id="aiModal" class="modal-overlay" style="display:none;">
+  <div id="aiModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle" style="display:none;">
     <div class="modal">
       <div class="modal-header">
-        <h2>AI 紀錄助手</h2>
+        <h2 id="aiModalTitle">AI 紀錄助手</h2>
         <button class="modal-close" id="aiModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
@@ -373,7 +388,7 @@
           <div class="form-grid">
             <div class="form-group form-group-full">
               <label class="form-label" for="aiRecordText">輸入紀錄內容</label>
-              <textarea id="aiRecordText" class="form-input form-textarea" rows="4" placeholder="例：全國加油站 98加了1000&#10;例：車子美容 3000&#10;例：今天換輪胎 42000km 18000" required></textarea>
+              <textarea id="aiRecordText" class="form-input form-textarea" rows="4" maxlength="500" placeholder="例：全國加油站 98加了1000&#10;例：車子美容 3000&#10;例：今天換輪胎 42000km 18000" required></textarea>
               <div class="form-help">AI 會先產生草稿並填入表單；確認後才會儲存。</div>
             </div>
             <div class="ai-result-note" id="aiResultNote"></div>
@@ -389,7 +404,7 @@
   </div>
 
   <!-- 加油紀錄 Modal -->
-  <div id="fuelLogModal" class="modal-overlay" style="display:none;">
+  <div id="fuelLogModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="fuelLogModalTitle" style="display:none;">
     <div class="modal">
       <div class="modal-header">
         <h2 id="fuelLogModalTitle">新增加油紀錄</h2>
@@ -404,7 +419,8 @@
             </div>
             <div class="form-group">
               <label class="form-label" for="fuelLogMileageInput">里程 (km) <span class="required">*</span></label>
-              <input type="number" id="fuelLogMileageInput" class="form-input" min="0" step="1" required/>
+              <input type="text" id="fuelLogMileageInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" required/>
+              <div class="form-help" id="fuelLogMileageHint"></div>
             </div>
             <div class="form-group">
               <label class="form-label" for="fuelLogLitersInput">加油量 (L)</label>
@@ -413,18 +429,18 @@
             <div class="form-group">
               <label class="form-label" for="fuelLogUnitPriceInput">牌告油價 (NT$/L)</label>
               <div class="input-action-row">
-                <input type="number" id="fuelLogUnitPriceInput" class="form-input" min="0" step="0.1" placeholder="自動抓取或手動輸入"/>
+                <input type="text" id="fuelLogUnitPriceInput" class="form-input" inputmode="decimal" autocomplete="off" placeholder="自動抓取或手動輸入"/>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnFetchFuelPrice">抓油價</button>
               </div>
               <div class="form-help" id="fuelLogPriceStatus">預設 98，會嘗試抓取全國加油站今日牌價。</div>
             </div>
             <div class="form-group">
               <label class="form-label" for="fuelLogDiscountInput">優惠折抵 (NT$/L)</label>
-              <input type="number" id="fuelLogDiscountInput" class="form-input" min="0" step="0.1" value="1.8"/>
+              <input type="text" id="fuelLogDiscountInput" class="form-input" inputmode="decimal" autocomplete="off" value="1.8"/>
             </div>
             <div class="form-group">
               <label class="form-label" for="fuelLogCostInput">油費 (NT$)</label>
-              <input type="number" id="fuelLogCostInput" class="form-input" min="0" step="1" placeholder="0"/>
+              <input type="text" id="fuelLogCostInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="0"/>
               <div class="form-help" id="fuelLogNetPriceHint">輸入加油量與油價會自動試算；若忘記公升數，可填油費與油價反推。</div>
             </div>
             <div class="form-group">
@@ -459,10 +475,10 @@
   </div>
 
   <!-- 汽油精添加 Modal -->
-  <div id="fuelModal" class="modal-overlay" style="display:none;">
+  <div id="fuelModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="fuelModalTitle" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h2>記錄汽油精</h2>
+        <h2 id="fuelModalTitle">記錄汽油精</h2>
         <button class="modal-close" id="fuelModalClose" type="button" aria-label="關閉">✕</button>
       </div>
       <div class="modal-body">
@@ -470,11 +486,11 @@
           <div class="form-grid">
             <div class="form-group form-group-full">
               <label class="form-label" for="fuelMileageInput">里程 (km) <span class="required">*</span></label>
-              <input type="number" id="fuelMileageInput" class="form-input" min="0" step="1" required/>
+              <input type="text" id="fuelMileageInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" required/>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label" for="fuelCostInput">費用 (NT$)</label>
-              <input type="number" id="fuelCostInput" class="form-input" min="0" step="1" placeholder="0"/>
+              <input type="text" id="fuelCostInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="0"/>
             </div>
             <div class="form-group form-group-full">
               <label class="form-label" for="fuelNoteInput">備註</label>
@@ -492,13 +508,13 @@
   </div>
 
   <!-- 刪除確認 Modal -->
-  <div id="deleteModal" class="modal-overlay" style="display:none;">
+  <div id="deleteModal" class="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="deleteModalTitle" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h2>確認刪除</h2>
+        <h2 id="deleteModalTitle">確認刪除</h2>
       </div>
       <div class="modal-body">
-        <p style="color:var(--text-secondary);line-height:1.6">確定要刪除這筆紀錄嗎？此動作無法復原。</p>
+        <p style="color:var(--text-secondary);line-height:1.6">確定要刪除這筆紀錄嗎？刪除後可在提示列按「復原」。</p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" id="deleteCancelBtn">取消</button>
@@ -507,10 +523,10 @@
     </div>
   </div>
 
-  <div id="backupRestoreModal" class="modal-overlay" style="display:none;">
+  <div id="backupRestoreModal" class="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="backupRestoreModalTitle" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h2>確認還原備份</h2>
+        <h2 id="backupRestoreModalTitle">確認還原備份</h2>
       </div>
       <div class="modal-body">
         <p style="color:var(--text-secondary);line-height:1.6">還原會先下載目前資料的復原備份，接著以備份檔完整取代所有紀錄。</p>
@@ -523,10 +539,10 @@
     </div>
   </div>
 
-  <div id="duplicateModal" class="modal-overlay" style="display:none;">
+  <div id="duplicateModal" class="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="duplicateModalTitle" style="display:none;">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h2>可能重複的紀錄</h2>
+        <h2 id="duplicateModalTitle">可能重複的紀錄</h2>
       </div>
       <div class="modal-body">
         <p style="color:var(--text-secondary);line-height:1.6">這筆紀錄可能與下列資料重複。請確認後再儲存；你仍可選擇「仍要儲存」。</p>
@@ -587,8 +603,6 @@
     <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=2026.09.04.1"></script>
+  <script src="app.js?v=2026.10.02.1" defer></script>
 </body>
 </html>

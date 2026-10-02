@@ -1,30 +1,51 @@
 // ============================================================
-// 初始資料（從 Excel 匯出）
-// ============================================================
-const INITIAL_DATA = [];
-
-// ============================================================
 // 雲端與本地儲存管理
 // ============================================================
 const STORAGE_KEY = "newSuperbMaintenanceRecords_v1";
+const SYNC_META_KEY = "newSuperbSyncMeta_v1";
+const LEGACY_LOCAL_STASH_KEY = "newSuperbLocalBeforeSyncUpgrade_v1";
+const SYNC_GET_TIMEOUT_MS = 15000;
+const SYNC_POST_TIMEOUT_MS = 30000;
+const SYNC_RETRY_MIN_MS = 15000;
+const SYNC_RETRY_MAX_MS = 5 * 60 * 1000;
+const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
+// 這些視窗開著時不替換紀錄陣列（它們以索引指向正在編輯的紀錄）。
+const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.09.04.1";
+const APP_VERSION = "v2026.10.02.1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
 const VEHICLE_DELIVERY_MILEAGE_KM = 0;
 const WARRANTY_MONTHS = 48;
 const FIRST_INSPECTION_INTERVAL_MONTHS = 60;
-const MAINTENANCE_INTERVAL_KM = 10000;
-const MAINTENANCE_DUE_KM = 12000;
+// 定期保養：每 7,500 km 或 12 個月，以先到者為準；剩 1,000 km 或 30 天內提醒安排。
+const MAINTENANCE_INTERVAL_KM = 7500;
+const MAINTENANCE_SOON_KM = 1000;
 const MAINTENANCE_INTERVAL_MONTHS = 12;
-const MAINTENANCE_DUE_MONTHS = 13;
+const MAINTENANCE_SOON_DAYS = 30;
+// 依最近 90 天的里程推估開車速度；這段期間資料不足 14 天時改用交車以來的平均。
+const DRIVING_PACE_WINDOW_DAYS = 90;
+const DRIVING_PACE_MIN_DAYS = 14;
+const SERVICE_CATEGORIES = ["保養", "維修", "更換", "改裝升級", "其他"];
+const LEGAL_CATEGORIES = ["檢驗/稅費", "其他"];
 const DEFAULT_FUEL_TYPE = "98";
 const DEFAULT_FUEL_DISCOUNT = 1.8;
 const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v2";
 const FUEL_PRICE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const FUEL_PRICE_RECHECK_MS = 60 * 60 * 1000;
+const AI_CONTEXT_RECORD_LIMIT = 20;
+const RECORDS_PAGE_SIZE = 50;
+const CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js";
+const CHART_JS_SRI = "sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=";
+const TESSERACT_JS_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+const TESSERACT_JS_SRI = "sha256-qOKZGNCYsrBuEBK9rv+0rsBEXF1WVHCQI+C9H0QqgOg=";
+const OCR_MAX_IMAGE_SIDE = 2000;
+// 油耗走勢：深色背景上通過色弱與對比檢查的藍／橘；橘色點另以三角形與「待確認」標示。
+const FUEL_TREND_COLOR = "#388bfd";
+const FUEL_TREND_WARNING_COLOR = "#db6d28";
 const VEHICLE_PROFILE = {
   name: "2026 Superb Combi 2.0 TSI 4x4",
   displacementCc: 1984,
@@ -35,6 +56,7 @@ const FIXED_OWNER_COSTS = [
     name: "使用牌照稅",
     icon: "牌",
     terms: ["牌照稅", "使用牌照稅"],
+    categories: LEGAL_CATEGORIES,
     month: 4,
     startDay: 1,
     endDay: 30,
@@ -44,6 +66,7 @@ const FIXED_OWNER_COSTS = [
     name: "公路養管費",
     icon: "路",
     terms: ["燃料稅", "燃料費", "汽燃費", "公路養管費"],
+    categories: LEGAL_CATEGORIES,
     month: 7,
     startDay: 1,
     endDay: 31,
@@ -55,11 +78,19 @@ let records = [];
 let currentFilter = "全部";
 let currentSearch = "";
 let currentYear = "";
+let recordsVisibleLimit = RECORDS_PAGE_SIZE;
 let deleteTargetIndex = -1;
 let costChart = null;
 let catChart = null;
+let fuelTrendChart = null;
 let lastSyncAt = null;
-let lastCloudFingerprint = "";
+let lastCloudCheckAt = 0;
+let syncMeta = null;
+let syncRunning = null;
+let syncRequest = null;
+let syncRetryTimer = null;
+let syncRetryDelayMs = SYNC_RETRY_MIN_MS;
+let syncDeferredForEditor = false;
 let photoMode = "fuel";
 let photoParsed = null;
 let photoPreviewUrl = "";
@@ -67,15 +98,13 @@ let aiBackendReady = null;
 let fuelEditIndex = -1;
 let activeView = "overview";
 let activeRecordsSubtab = "all";
-let deletedRecordSnapshot = null;
+let lastUndo = null;
 let toastTimer = null;
 let pendingRestoreRecords = null;
 let pendingDuplicateSave = null;
 let backupDownloadSpy = null;
 let pendingCalendarTask = null;
 let renderedOwnerActions = [];
-let calendarReminderInvoker = null;
-let quickEntryInvoker = null;
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -160,25 +189,30 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8500) {
   }
 }
 
+// 只是檢查、補充、換位等，不算更換；category 限制避免「保險桿」被當成保險。
+const OIL_CHECK_PHRASES = ["檢查機油", "機油檢查", "補機油", "機油補充", "添加機油", "機油添加", "機油尺", "機油燈", "機油壓力"];
 const CONSUMABLE_RULES = [
-  { name: "機油保養", icon: "🛢", terms: ["機油"], intervalKm: 10000, dueKm: 12000 },
-  { name: "變速箱油", icon: "⚙", terms: ["變速箱油", "閥體油"], intervalKm: 40000, dueKm: 60000 },
-  { name: "輪胎", icon: "輪", terms: ["輪胎"], intervalKm: 40000, dueKm: 50000 },
-  { name: "電瓶", icon: "🔋", terms: ["電瓶"], intervalMonths: 36, dueMonths: 48 },
-  { name: "煞車油", icon: "制", terms: ["煞車油"], intervalMonths: 24, dueMonths: 36 },
-  { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], intervalKm: 10000, dueKm: 15000 },
-  { name: "保險", icon: "🛡", terms: ["保險", "強制險", "任意險"], intervalMonths: 12, dueMonths: 13 },
+  { name: "定期保養", icon: "🛢", maintenance: true },
+  { name: "變速箱油", icon: "⚙", terms: ["變速箱油", "閥體油"], categories: SERVICE_CATEGORIES, ignore: ["檢查變速箱油", "變速箱油檢查"], soonKm: 40000, dueKm: 60000 },
+  { name: "輪胎", icon: "輪", terms: ["輪胎"], categories: SERVICE_CATEGORIES, ignore: ["輪胎換位", "輪胎檢查", "檢查輪胎", "輪胎平衡", "輪胎打氣", "輪胎胎壓"], soonKm: 40000, dueKm: 50000 },
+  { name: "電瓶", icon: "🔋", terms: ["電瓶"], categories: SERVICE_CATEGORIES, ignore: ["電瓶檢查", "檢查電瓶", "電瓶測試", "測電瓶", "電瓶充電"], soonMonths: 36, dueMonths: 48 },
+  { name: "煞車油", icon: "制", terms: ["煞車油"], categories: SERVICE_CATEGORIES, ignore: ["檢查煞車油", "煞車油檢查"], soonMonths: 24, dueMonths: 36 },
+  { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], categories: SERVICE_CATEGORIES, ignore: ["檢查冷氣濾網", "冷氣濾網檢查"], soonKm: 10000, dueKm: 15000 },
+  { name: "保險", icon: "🛡", terms: ["保險", "強制險", "任意險", "續保", "產險"], matchCategory: "保險", categories: ["保險", "其他"], ignore: ["保險桿", "保險絲"], soonMonths: 11, dueMonths: 12 },
   {
     name: "驗車",
     icon: "📅",
     terms: ["驗車", "定檢", "定期檢驗", "車輛檢驗"],
-    intervalMonths: 12,
-    dueMonths: 13,
+    categories: LEGAL_CATEGORIES,
+    soonMonths: 11,
+    dueMonths: 12,
     firstDueFrom: VEHICLE_DELIVERY_DATE,
     firstDueMonths: FIRST_INSPECTION_INTERVAL_MONTHS,
     firstDueMeta: "自用小客車新車未滿 5 年免定檢"
   }
 ];
+const FUEL_ADDITIVE_RULE = { terms: ["汽油精"] };
+const TAX_RULE = { terms: ["牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費"], categories: LEGAL_CATEGORIES };
 
 function parseCloudState(payload) {
   if (Array.isArray(payload)) {
@@ -194,91 +228,436 @@ function parseCloudState(payload) {
   throw new Error("雲端資料格式不正確");
 }
 
-async function initData() {
-  document.getElementById("recordsContainer").innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>正在從雲端同步資料...</p></div>';
-  setSyncStatus("syncing", "同步中");
-  
-  try {
-    const res = await fetchWithTimeout(API_URL + "?action=syncState");
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const cloudState = parseCloudState(await res.json());
-    const data = cloudState.records;
-    lastCloudFingerprint = cloudState.fingerprint;
-    
-    if (Array.isArray(data) && data.length > 0) {
-      records = data;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-      lastSyncAt = new Date();
-      setSyncStatus("ok", "已同步 " + formatTime(lastSyncAt));
-    } else {
-      const localRecords = loadLocalRecords();
-      if (localRecords.length > 0) {
-        records = localRecords;
-        setSyncStatus("warn", "本機已保存，雲端無資料");
-      } else if (INITIAL_DATA.length > 0) {
-        records = [...INITIAL_DATA];
-        await syncToCloud(records);
-      } else {
-        records = [];
-        setSyncStatus("ok", "雲端無資料");
-      }
-    }
-  } catch(e) {
-    console.error("讀取雲端失敗，使用本機資料", e);
-    const localRecords = loadLocalRecords();
-    records = localRecords.length ? localRecords : [...INITIAL_DATA];
-    setSyncStatus("error", "本機已保存，雲端讀取失敗");
-  }
-  refresh();
+// ------------------------------------------------------------
+// 同步：本機保留「上次確認的雲端版本」(base)，所有上傳排成單一佇列。
+// 雲端在這段期間被其他裝置改過時，以整筆紀錄為單位做三方合併，不丟資料。
+// ------------------------------------------------------------
+function canonicalizeRecord(record) {
+  const toText = value => value == null ? "" : String(value);
+  const mileage = record?.mileage === "" || record?.mileage == null ? null : Number(record.mileage);
+  const cost = record?.cost === "" || record?.cost == null ? 0 : Number(record.cost);
+  return {
+    date: toText(record?.date),
+    mileage: Number.isFinite(mileage) ? mileage : null,
+    category: toText(record?.category),
+    cost: Number.isFinite(cost) ? cost : 0,
+    detail: toText(record?.detail),
+    note: toText(record?.note)
+  };
 }
 
-async function syncToCloud(data, { allowDestructiveReplace = false, reason = "save" } = {}) {
-  setSyncStatus("syncing", "同步中");
+function recordKey(record) {
+  const value = canonicalizeRecord(record);
+  return JSON.stringify([value.date, value.mileage, value.category, value.cost, value.detail, value.note]);
+}
+
+function countRecordKeys(list) {
+  const counts = new Map();
+  (list || []).forEach(record => {
+    const key = recordKey(record);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return counts;
+}
+
+function sameRecordSet(a, b) {
+  if ((a || []).length !== (b || []).length) return false;
+  const counts = countRecordKeys(a);
+  for (const record of b || []) {
+    const key = recordKey(record);
+    const left = counts.get(key) || 0;
+    if (!left) return false;
+    counts.set(key, left - 1);
+  }
+  return true;
+}
+
+function mergeRecordLists(baseList, localList, cloudList) {
+  const base = countRecordKeys(baseList);
+  const local = countRecordKeys(localList);
+  const cloud = countRecordKeys(cloudList);
+  const remaining = new Map();
+  let cloudChanges = 0;
+  new Set([...base.keys(), ...local.keys(), ...cloud.keys()]).forEach(key => {
+    const b = base.get(key) || 0;
+    const l = local.get(key) || 0;
+    const c = cloud.get(key) || 0;
+    let count;
+    if (l === b) count = c;
+    else if (c === b || l === c) count = l;
+    else count = Math.max(l, c);
+    if (count === c && c !== b) cloudChanges += Math.abs(c - b);
+    remaining.set(key, count);
+  });
+
+  const merged = [];
+  const take = (list, toRecord) => (list || []).forEach(record => {
+    const key = recordKey(record);
+    const left = remaining.get(key) || 0;
+    if (!left) return;
+    merged.push(toRecord(record));
+    remaining.set(key, left - 1);
+  });
+  take(localList, record => record);
+  take(cloudList, canonicalizeRecord);
+  return { records: merged, cloudChanges };
+}
+
+function emptySyncMeta() {
+  return {
+    version: 1,
+    baseFingerprint: "",
+    baseRecords: [],
+    dirty: false,
+    pendingRestore: false,
+    lastAttempt: null
+  };
+}
+
+function loadSyncMeta() {
   try {
-    const res = await fetchWithTimeout(API_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        records: data,
-        expectedFingerprint: lastCloudFingerprint,
-        allowDestructiveReplace,
-        reason
-      }),
-      redirect: 'follow'
-    });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const result = typeof res.json === "function"
-      ? await res.json()
-      : { status: "success" };
-    if (result && result.status === "conflict") {
-      const message = result.message || "雲端資料已變更，請重新載入後再試。";
-      setSyncStatus("error", message + " 本機資料仍保留。");
-      return false;
+    const parsed = JSON.parse(localStorage.getItem(SYNC_META_KEY) || "null");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return {
+      ...emptySyncMeta(),
+      ...parsed,
+      baseRecords: Array.isArray(parsed.baseRecords) ? parsed.baseRecords : []
+    };
+  } catch (error) {
+    console.error("讀取同步狀態失敗", error);
+    return null;
+  }
+}
+
+function persistSyncMeta() {
+  try {
+    localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta));
+  } catch (error) {
+    console.error("儲存同步狀態失敗", error);
+  }
+}
+
+function persistLocalRecords() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
+
+function isRecordEditorOpen() {
+  return RECORD_EDITOR_MODAL_IDS.some(id => document.getElementById(id)?.style.display === "flex");
+}
+
+function stashLegacyLocalRecords(list) {
+  try {
+    localStorage.setItem(LEGACY_LOCAL_STASH_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      records: list
+    }));
+  } catch (error) {
+    console.error("另存升級前的本機資料失敗", error);
+  }
+  showToast("已改用雲端資料；先前本機不同的版本已另存，可在「資料管理」下載。", null, { routine: true });
+  updateLegacyStashButton();
+}
+
+function getLegacyLocalStash() {
+  try {
+    const stash = JSON.parse(localStorage.getItem(LEGACY_LOCAL_STASH_KEY) || "null");
+    return stash && Array.isArray(stash.records) ? stash : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function updateLegacyStashButton() {
+  const button = document.getElementById("btnLegacyStashDownload");
+  if (button) button.hidden = !getLegacyLocalStash();
+}
+
+function downloadLegacyLocalStash() {
+  const stash = getLegacyLocalStash();
+  if (!stash) return;
+  if (downloadJsonBackup(stash.records.map(canonicalizeRecord), "升級前本機資料")) {
+    localStorage.removeItem?.(LEGACY_LOCAL_STASH_KEY);
+    updateLegacyStashButton();
+  } else {
+    showToast("備份下載失敗，請再試一次。");
+  }
+}
+
+async function fetchCloudState() {
+  const res = await fetchWithTimeout(API_URL + "?action=syncState", { cache: "no-store" }, SYNC_GET_TIMEOUT_MS);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const state = parseCloudState(await res.json());
+  if (!state.fingerprint) throw new Error("雲端尚未支援版本檢查，請先部署最新的 Apps Script。");
+  return state;
+}
+
+async function postRecordsToCloud(snapshot, { expectedFingerprint, allowDestructiveReplace }) {
+  const res = await fetchWithTimeout(API_URL, {
+    method: "POST",
+    body: JSON.stringify({
+      records: snapshot,
+      expectedFingerprint,
+      allowDestructiveReplace,
+      reason: allowDestructiveReplace ? "restore" : "save"
+    }),
+    redirect: "follow"
+  }, SYNC_POST_TIMEOUT_MS);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const result = await res.json();
+  if (!result || typeof result !== "object") throw new Error("雲端回應格式不正確");
+  return result;
+}
+
+// 回傳 { changed, cloudChanges }：changed 代表畫面上的紀錄被雲端內容更新。
+function applyCloudState(cloud) {
+  const cloudRecords = cloud.records.map(canonicalizeRecord);
+  const meta = syncMeta;
+
+  if (meta.lastAttempt) {
+    // 上次上傳沒有收到回應：雲端若等於當時送出的內容，代表其實已寫入。
+    if (sameRecordSet(cloudRecords, meta.lastAttempt.records)) {
+      meta.baseRecords = meta.lastAttempt.records;
+      meta.baseFingerprint = cloud.fingerprint;
+      meta.pendingRestore = false;
     }
-    if (result && result.status && result.status !== "success") {
-      const message = result.message || "雲端拒絕這次同步";
-      setSyncStatus("error", message + " 本機資料仍保留。");
-      return false;
+    meta.lastAttempt = null;
+  }
+
+  if (meta.legacyLocal) {
+    meta.legacyLocal = false;
+    if (meta.baseRecords.length && !sameRecordSet(meta.baseRecords, cloudRecords)) {
+      if (!cloudRecords.length) {
+        meta.baseRecords = [];
+        meta.baseFingerprint = cloud.fingerprint;
+        meta.dirty = true;
+        persistSyncMeta();
+        return { changed: false, cloudChanges: 0 };
+      }
+      stashLegacyLocalRecords(meta.baseRecords);
     }
-    if (result && typeof result.fingerprint === "string") {
-      lastCloudFingerprint = result.fingerprint;
-    }
-    lastSyncAt = new Date();
-    setSyncStatus("ok", "已同步 " + formatTime(lastSyncAt));
-    return true;
-  } catch(e) {
-    console.error("同步至雲端失敗", e);
-    setSyncStatus("error", "本機已保存，點擊重試同步");
+  }
+
+  if (!meta.dirty) {
+    const changed = !sameRecordSet(records, cloudRecords);
+    records = cloudRecords.map(record => ({ ...record }));
+    meta.baseRecords = cloudRecords;
+    meta.baseFingerprint = cloud.fingerprint;
+    persistLocalRecords();
+    persistSyncMeta();
+    return { changed, cloudChanges: 0 };
+  }
+
+  if (sameRecordSet(records, cloudRecords)) {
+    meta.baseRecords = cloudRecords;
+    meta.baseFingerprint = cloud.fingerprint;
+    meta.dirty = false;
+    meta.pendingRestore = false;
+    persistSyncMeta();
+    return { changed: false, cloudChanges: 0 };
+  }
+
+  if (meta.pendingRestore || cloud.fingerprint === meta.baseFingerprint || sameRecordSet(cloudRecords, meta.baseRecords)) {
+    // 雲端在這段期間沒有其他變更（或使用者確認要整批還原）：直接上傳本機版本。
+    meta.baseRecords = cloudRecords;
+    meta.baseFingerprint = cloud.fingerprint;
+    persistSyncMeta();
+    return { changed: false, cloudChanges: 0 };
+  }
+
+  const merged = mergeRecordLists(meta.baseRecords, records, cloudRecords);
+  records = merged.records;
+  meta.baseRecords = cloudRecords;
+  meta.baseFingerprint = cloud.fingerprint;
+  meta.dirty = !sameRecordSet(records, cloudRecords);
+  persistLocalRecords();
+  persistSyncMeta();
+  return { changed: true, cloudChanges: merged.cloudChanges };
+}
+
+async function reconcileWithCloud() {
+  setSyncStatus("syncing", "同步中");
+  let cloud;
+  try {
+    cloud = await fetchCloudState();
+  } catch (error) {
+    console.error("讀取雲端失敗，使用本機資料", error);
+    markSyncUnreachable();
     return false;
   }
+  lastCloudCheckAt = Date.now();
+  if (isRecordEditorOpen()) {
+    // 表單開著時不替換紀錄，避免編輯中的索引對到別筆；關閉後再同步。
+    syncDeferredForEditor = true;
+    return false;
+  }
+  const result = applyCloudState(cloud);
+  if (!syncMeta.dirty) lastSyncAt = new Date();
+  if (result.changed) {
+    refresh();
+    if (result.cloudChanges) {
+      showToast(`已合併其他裝置的 ${result.cloudChanges} 項變更`, null, { routine: true });
+    }
+  }
+  return true;
 }
 
-function saveRecords(data, { announce = true, allowDestructiveReplace = false, reason = "save" } = {}) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  setSyncStatus("syncing", "本機已保存，同步中");
-  if (announce) showToast("已儲存到本機，正在同步…", null, { routine: true });
-  syncToCloud(data, { allowDestructiveReplace, reason }).then(ok => {
-    if (announce) showToast(ok ? "已同步雲端" : "同步失敗，本機資料仍保留", null, { routine: true });
+async function pushLocalChanges() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = records.map(canonicalizeRecord);
+    const restore = Boolean(syncMeta.pendingRestore);
+    syncMeta.lastAttempt = { fingerprint: syncMeta.baseFingerprint, records: snapshot };
+    persistSyncMeta();
+    setSyncStatus("syncing", "同步中");
+
+    let result;
+    try {
+      result = await postRecordsToCloud(snapshot, {
+        expectedFingerprint: syncMeta.baseFingerprint,
+        allowDestructiveReplace: restore
+      });
+    } catch (error) {
+      // 不確定雲端是否已寫入：保留 lastAttempt，下次先讀雲端比對。
+      console.error("同步至雲端失敗", error);
+      markSyncUnreachable();
+      return false;
+    }
+
+    if (result.status === "success" && typeof result.fingerprint === "string" && result.fingerprint) {
+      syncMeta.baseRecords = snapshot;
+      syncMeta.baseFingerprint = result.fingerprint;
+      syncMeta.lastAttempt = null;
+      if (restore) syncMeta.pendingRestore = false;
+      syncMeta.dirty = !sameRecordSet(records, snapshot);
+      persistSyncMeta();
+      lastSyncAt = new Date();
+      lastCloudCheckAt = Date.now();
+      syncRetryDelayMs = SYNC_RETRY_MIN_MS;
+      if (syncMeta.dirty) syncRequest = syncRequest || { reconcile: false };
+      updateSyncStatusFromMeta();
+      return true;
+    }
+
+    if (result.status === "conflict") {
+      syncMeta.lastAttempt = null;
+      persistSyncMeta();
+      if (!await reconcileWithCloud()) return false;
+      if (!syncMeta.dirty) {
+        updateSyncStatusFromMeta();
+        return true;
+      }
+      continue;
+    }
+
+    if (result.status === "rejected") {
+      syncMeta.lastAttempt = null;
+      persistSyncMeta();
+      setSyncStatus("error", (result.message || "雲端拒絕這次同步") + " 本機資料仍保留。");
+      return false;
+    }
+
+    setSyncStatus("error", (result.message || "雲端同步失敗") + " 本機資料仍保留，稍後會自動重試。");
+    scheduleSyncRetry();
+    return false;
+  }
+  setSyncStatus("error", "雲端資料持續變動，稍後會自動重試。本機資料仍保留。");
+  scheduleSyncRetry();
+  return false;
+}
+
+async function syncOnce({ reconcile = false } = {}) {
+  if (!syncMeta) syncMeta = emptySyncMeta();
+  if (reconcile || !syncMeta.baseFingerprint || syncMeta.lastAttempt) {
+    if (!await reconcileWithCloud()) return;
+  }
+  if (!syncMeta.dirty) {
+    updateSyncStatusFromMeta();
+    return;
+  }
+  await pushLocalChanges();
+}
+
+function requestSync({ reconcile = false } = {}) {
+  if (syncRunning) {
+    syncRequest = { reconcile: reconcile || Boolean(syncRequest?.reconcile) };
+    return syncRunning;
+  }
+  syncRunning = (async () => {
+    let next = { reconcile };
+    while (next) {
+      syncRequest = null;
+      await syncOnce(next);
+      next = syncRequest;
+    }
+  })().finally(() => {
+    syncRunning = null;
+    if (syncRequest) {
+      const pending = syncRequest;
+      syncRequest = null;
+      requestSync(pending);
+    }
   });
+  return syncRunning;
+}
+
+function scheduleSyncRetry() {
+  if (syncRetryTimer) return;
+  const delay = syncRetryDelayMs;
+  syncRetryDelayMs = Math.min(syncRetryDelayMs * 2, SYNC_RETRY_MAX_MS);
+  syncRetryTimer = setTimeout(() => {
+    syncRetryTimer = null;
+    if (syncMeta?.dirty || syncMeta?.lastAttempt) requestSync({ reconcile: true });
+  }, delay);
+}
+
+function resumeDeferredSync() {
+  if (!syncDeferredForEditor || isRecordEditorOpen()) return;
+  syncDeferredForEditor = false;
+  requestSync({ reconcile: true });
+}
+
+function markSyncUnreachable() {
+  if (syncMeta?.dirty || syncMeta?.lastAttempt) {
+    setSyncStatus("warn", "未同步・已存本機");
+    scheduleSyncRetry();
+  } else {
+    setSyncStatus("warn", "離線・顯示本機資料");
+  }
+}
+
+function updateSyncStatusFromMeta() {
+  if (syncMeta?.dirty) {
+    setSyncStatus("syncing", "同步中");
+  } else {
+    setSyncStatus("ok", lastSyncAt ? "已同步 " + formatTime(lastSyncAt) : "已同步");
+  }
+}
+
+async function initData() {
+  const storedMeta = loadSyncMeta();
+  records = loadLocalRecords().map(canonicalizeRecord);
+  syncMeta = storedMeta || { ...emptySyncMeta(), legacyLocal: true, baseRecords: records.map(canonicalizeRecord) };
+  updateLegacyStashButton();
+
+  if (records.length) {
+    refresh();
+  } else {
+    document.getElementById("recordsContainer").innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>正在從雲端同步資料...</p></div>';
+  }
+  setSyncStatus("syncing", "同步中");
+  await requestSync({ reconcile: true });
+  if (!records.length) refresh();
+}
+
+function saveRecords(data = records, { announce = true, allowDestructiveReplace = false } = {}) {
+  records = data;
+  persistLocalRecords();
+  if (!syncMeta) syncMeta = emptySyncMeta();
+  syncMeta.dirty = true;
+  if (allowDestructiveReplace) syncMeta.pendingRestore = true;
+  persistSyncMeta();
+  setSyncStatus("syncing", "同步中");
+  if (announce) showToast("已儲存，正在同步", null, { routine: true });
+  return requestSync();
 }
 
 function hideToast() {
@@ -457,23 +836,24 @@ function buildCalendarFile(task, now = new Date()) {
   return lines.map(foldIcsLine).join("\r\n") + "\r\n";
 }
 
+// 只檢查結構；內容可以空白（例如試算表手動補的列），才不會出現匯得出、還原不了的備份。
 function getStoredRecordValidationError(record) {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
-    return "Record must be an object.";
+    return "紀錄格式不正確";
   }
-  for (const field of ["date", "category", "detail"]) {
-    if (typeof record[field] !== "string" || !record[field].trim()) {
-      return `Record ${field} must be a non-empty string.`;
+  for (const field of ["date", "category", "detail", "note"]) {
+    if (typeof record[field] !== "string") {
+      return `紀錄的 ${field} 必須是文字`;
     }
   }
   if (record.mileage !== null && !Number.isFinite(record.mileage)) {
-    return "Record mileage must be a finite number or null.";
+    return "紀錄的里程必須是數字或空白";
   }
   if (!Number.isFinite(record.cost)) {
-    return "Record cost must be a finite number.";
+    return "紀錄的費用必須是數字";
   }
-  if (typeof record.note !== "string") {
-    return "Record note must be a string.";
+  if (!record.date.trim() && !record.category.trim() && !record.detail.trim()) {
+    return "紀錄沒有日期、類別與內容";
   }
   return "";
 }
@@ -487,27 +867,27 @@ function buildBackupEnvelope(sourceRecords, exportedAt = new Date().toISOString(
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt,
-    records: sourceRecords.map(record => ({ ...record }))
+    records: sourceRecords.map(canonicalizeRecord)
   };
 }
 
 function validateBackupEnvelope(candidate) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-    return { ok: false, error: "Backup must be an object." };
+    return { ok: false, error: "備份內容不是有效的備份檔" };
   }
   if (candidate.format !== BACKUP_FORMAT) {
-    return { ok: false, error: "Backup format is not supported." };
+    return { ok: false, error: "不是這個 App 匯出的備份檔" };
   }
   if (candidate.version !== BACKUP_VERSION) {
-    return { ok: false, error: "Backup version is not supported." };
+    return { ok: false, error: "備份檔版本不支援" };
   }
   if (!Array.isArray(candidate.records)) {
-    return { ok: false, error: "Backup records must be an array." };
+    return { ok: false, error: "備份檔缺少紀錄清單" };
   }
 
-  for (const record of candidate.records) {
+  for (const [index, record] of candidate.records.entries()) {
     const error = getStoredRecordValidationError(record);
-    if (error) return { ok: false, error };
+    if (error) return { ok: false, error: `第 ${index + 1} 筆${error}` };
   }
   return { ok: true, records: candidate.records.map(record => ({ ...record })) };
 }
@@ -568,7 +948,7 @@ function stageBackupRestore(fileText) {
     pendingRestoreRecords = validation.records.map(record => ({ ...record }));
     document.getElementById("backupRestoreSummary").textContent =
       `筆數：${pendingRestoreRecords.length} 筆／日期：${getBackupDateRange(pendingRestoreRecords)}`;
-    document.getElementById("backupRestoreModal").style.display = "flex";
+    openDialog("backupRestoreModal", { focusId: "backupRestoreCancelBtn" });
     return { ok: true };
   } catch (error) {
     pendingRestoreRecords = null;
@@ -580,7 +960,7 @@ function stageBackupRestore(fileText) {
 
 function closeBackupRestoreModal() {
   pendingRestoreRecords = null;
-  document.getElementById("backupRestoreModal").style.display = "none";
+  closeDialog("backupRestoreModal");
 }
 
 function confirmBackupRestore() {
@@ -592,16 +972,19 @@ function confirmBackupRestore() {
   }
   records = pendingRestoreRecords.map(record => ({ ...record }));
   pendingRestoreRecords = null;
-  saveRecords(records, { announce: false, allowDestructiveReplace: true, reason: "restore" });
+  saveRecords(records, { announce: false, allowDestructiveReplace: true });
   closeBackupRestoreModal();
   refresh();
   showToast(`已還原 ${records.length} 筆紀錄`);
 }
 
-function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
-  const getDuplicateKey = value => [value.date, value.mileage ?? "", value.category]
+function getDuplicateKey(value) {
+  return [value.date, value.mileage ?? "", value.category]
     .map(part => String(part).trim())
     .join("|");
+}
+
+function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
   const key = getDuplicateKey(record);
   return records.filter((candidate, index) => index !== excludeIndex && getDuplicateKey(candidate) === key);
 }
@@ -617,12 +1000,12 @@ function requestRecordSave(record, { editIndex = -1, commit }) {
   document.getElementById("duplicateList").innerHTML = candidates.map(candidate => `
     <li>${escapeHtml(candidate.date)} · ${escapeHtml(candidate.mileage ?? "—")} km · ${escapeHtml(candidate.category)}</li>
   `).join("");
-  document.getElementById("duplicateModal").style.display = "flex";
+  openDialog("duplicateModal", { focusId: "duplicateCancelBtn" });
 }
 
 function closeDuplicateModal() {
   pendingDuplicateSave = null;
-  document.getElementById("duplicateModal").style.display = "none";
+  closeDialog("duplicateModal");
 }
 
 function confirmDuplicateSave() {
@@ -637,7 +1020,7 @@ function formatDateYM(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${date.getFullYear()}-${month}`;
 }
-function compareRecordsNewestFirst(a, b) {
+function compareRecordValuesNewestFirst(a, b) {
   const dateCompare = String(b.date || "").localeCompare(String(a.date || ""));
   if (dateCompare) return dateCompare;
 
@@ -647,8 +1030,23 @@ function compareRecordsNewestFirst(a, b) {
   const hasMileageB = Number.isFinite(mileageB);
   if (hasMileageA && hasMileageB && mileageA !== mileageB) return mileageB - mileageA;
   if (hasMileageA !== hasMileageB) return hasMileageB ? 1 : -1;
-
-  return records.indexOf(b) - records.indexOf(a);
+  return 0;
+}
+function compareRecordsNewestFirst(a, b) {
+  return compareRecordValuesNewestFirst(a, b) || records.indexOf(b) - records.indexOf(a);
+}
+// refresh() 期間相同的衍生資料只計算一次。
+let renderCache = null;
+function cachedForRender(key, compute) {
+  if (!renderCache) return compute();
+  if (!renderCache.has(key)) renderCache.set(key, compute());
+  return renderCache.get(key);
+}
+function getRecordsNewestFirst() {
+  return cachedForRender("recordsNewestFirst", () => records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => compareRecordValuesNewestFirst(a.record, b.record) || b.index - a.index)
+    .map(entry => entry.record));
 }
 function compareFuelLogsOldestFirst(a, b) {
   const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
@@ -664,14 +1062,19 @@ function addMonths(date, months) {
   next.setMonth(next.getMonth() + months);
   return next;
 }
-function diffMonths(from, to = new Date()) {
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+function diffMonths(from, to = now()) {
   if (!from) return 0;
   return Math.max(0, (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth());
 }
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
-function diffDays(from, to = new Date()) {
+function diffDays(from, to = now()) {
   if (!from) return 0;
   return Math.ceil((startOfDay(from) - startOfDay(to)) / 86400000);
 }
@@ -758,10 +1161,14 @@ function getFuelLogs() {
     .sort(compareFuelLogsOldestFirst);
 }
 function getFuelStats() {
+  return cachedForRender("fuelStats", computeFuelStats);
+}
+function computeFuelStats() {
   const logs = getFuelLogs();
   const totalCost = logs.reduce((sum, log) => sum + log.cost, 0);
   let anchor = null;
   let litersSinceAnchor = 0;
+  let costSinceAnchor = 0;
   const segments = [];
 
   logs.forEach(log => {
@@ -771,30 +1178,39 @@ function getFuelStats() {
     }
 
     litersSinceAnchor += log.liters;
+    costSinceAnchor += log.cost;
     if (log.fullTank) {
       const distance = log.mileage - anchor.mileage;
       if (distance > 0 && litersSinceAnchor > 0) {
         segments.push({
           date: log.date,
           mileage: log.mileage,
+          sourceIndex: log.sourceIndex,
           distance,
           liters: litersSinceAnchor,
-          kmPerLiter: distance / litersSinceAnchor
+          cost: costSinceAnchor,
+          kmPerLiter: distance / litersSinceAnchor,
+          costPerKm: costSinceAnchor > 0 ? costSinceAnchor / distance : null
         });
       }
       anchor = log;
       litersSinceAnchor = 0;
+      costSinceAnchor = 0;
     }
   });
 
   const totalDistance = segments.reduce((sum, segment) => sum + segment.distance, 0);
   const totalLiters = segments.reduce((sum, segment) => sum + segment.liters, 0);
+  const pricedSegments = segments.filter(segment => segment.costPerKm != null);
+  const pricedDistance = pricedSegments.reduce((sum, segment) => sum + segment.distance, 0);
+  const pricedCost = pricedSegments.reduce((sum, segment) => sum + segment.cost, 0);
   return {
     logs,
     segments,
     totalCost,
     averageKmPerLiter: totalDistance > 0 && totalLiters > 0 ? totalDistance / totalLiters : null,
-    latestKmPerLiter: segments.length ? segments[segments.length - 1].kmPerLiter : null
+    latestKmPerLiter: segments.length ? segments[segments.length - 1].kmPerLiter : null,
+    averageCostPerKm: pricedDistance > 0 ? pricedCost / pricedDistance : null
   };
 }
 function getMedian(values) {
@@ -841,15 +1257,40 @@ function getMileageRegressionIssues() {
             date,
             title: "里程比前一筆紀錄低",
             detail: `${date} 為 ${mileage.toLocaleString("zh-TW")} km，低於先前的 ${priorMax.toLocaleString("zh-TW")} km。請確認日期或里程。`,
-            key: `mileage|${date}|${mileage}`
+            key: `mileage|${date}|${mileage}`,
+            recordIndex: records.findIndex(record => record?.date === date && Number(record?.mileage) === mileage)
           }]
         : [];
       priorMax = priorMax == null ? mileage : Math.max(priorMax, mileage);
       return issue;
     });
 }
+function getDuplicateRecordIssues() {
+  const groups = new Map();
+  records.forEach((record, index) => {
+    if (isMileageUpdateRecord(record)) return;
+    const key = getDuplicateKey(record);
+    groups.set(key, [...(groups.get(key) || []), index]);
+  });
+  return [...groups.entries()]
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([key, indexes]) => {
+      const record = records[indexes[0]];
+      return {
+        type: "duplicate",
+        date: record.date || "",
+        title: "可能重複的紀錄",
+        detail: `${record.date || "未填日期"} · ${Number.isFinite(Number(record.mileage)) && record.mileage != null ? Number(record.mileage).toLocaleString("zh-TW") : "—"} km · ${record.category || "其他"} 有 ${indexes.length} 筆，請確認是否重複登錄。`,
+        key: "duplicate|" + key,
+        recordIndex: indexes[indexes.length - 1]
+      };
+    });
+}
 function getDataQualityIssues() {
-  const issues = getMileageRegressionIssues();
+  return cachedForRender("dataQualityIssues", computeDataQualityIssues);
+}
+function computeDataQualityIssues() {
+  const issues = [...getMileageRegressionIssues(), ...getDuplicateRecordIssues()];
   const fuelStats = getFuelStats();
   if (fuelStats.segments.length < 5) return issues;
 
@@ -862,18 +1303,29 @@ function getDataQualityIssues() {
       date: segment.date,
       title: "油耗區間待確認",
       detail: `${segment.date} 計算為 ${segment.kmPerLiter.toFixed(1)} km/L，${quality.reason}。請確認里程、是否漏登加油，或是否真的加滿。`,
-      key: `fuel|${segment.date}|${segment.mileage}`
+      key: `fuel|${segment.date}|${segment.mileage}`,
+      recordIndex: segment.sourceIndex
     });
   });
   return issues;
 }
-function recordMatchesTerms(r, terms) {
-  if (isMileageUpdateRecord(r)) return false;
-  const text = `${r.category || ""} ${r.detail || ""} ${r.note || ""}`;
-  return terms.some(term => text.includes(term));
+function stripPhrases(text, phrases = []) {
+  return phrases.reduce((result, phrase) => result.split(phrase).join(" "), String(text || ""));
+}
+function recordMatchesRule(record, rule) {
+  if (!record || isMileageUpdateRecord(record)) return false;
+  if (rule.matchCategory && record.category === rule.matchCategory) return true;
+  if (rule.categories && !rule.categories.includes(record.category)) return false;
+  const text = stripPhrases(`${record.detail || ""} ${record.note || ""}`, rule.ignore);
+  return rule.terms.some(term => text.includes(term));
+}
+// 測試可固定「今天」，讓到期判斷不隨執行日期改變。
+let nowOverride = null;
+function now() {
+  return nowOverride ? new Date(nowOverride) : new Date();
 }
 function getTodayString() {
-  const d = new Date();
+  const d = now();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${month}-${day}`;
@@ -958,11 +1410,14 @@ function parseFuelPhotoText(rawText) {
 }
 
 function inferServiceCategory(text) {
-  if (/保險|強制險|任意險|保單/.test(text)) return "保險";
-  if (/驗車|檢驗|牌照稅|燃料稅|稅/.test(text)) return "檢驗/稅費";
-  if (/輪胎|電瓶|更換/.test(text)) return "更換";
-  if (/故障|維修|檢修|漏|異音/.test(text)) return "維修";
-  if (/洗車|美容|鍍膜|清潔/.test(text)) return "清潔美容";
+  const source = String(text || "");
+  if (/保險|強制險|任意險|保單/.test(stripPhrases(source, ["保險桿", "保險絲"]))) return "保險";
+  if (/驗車|檢驗|牌照稅|燃料稅|稅/.test(source)) return "檢驗/稅費";
+  if (/保險桿|烤漆|鈑金|板金|刮傷|凹陷|擦撞/.test(source)) return "維修";
+  if (/輪胎換位|四輪定位/.test(source)) return "保養";
+  if (/輪胎|電瓶|更換/.test(source)) return "更換";
+  if (/故障|維修|檢修|漏|異音/.test(source)) return "維修";
+  if (/洗車|美容|鍍膜|清潔/.test(source)) return "清潔美容";
   return "保養";
 }
 
@@ -1006,10 +1461,8 @@ function getCategoryBadgeClass(cat) {
 // 統計卡片
 // ============================================================
 function updateStats() {
-  const sorted = [...records].sort(compareRecordsNewestFirst);
   const serviceRecords = getServiceRecords();
-  const sortedServiceRecords = [...serviceRecords].sort(compareRecordsNewestFirst);
-  const today = new Date();
+  const today = now();
   const oneYearAgo = new Date(today);
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
@@ -1024,9 +1477,9 @@ function updateStats() {
   document.getElementById("statCurrentMileage").textContent =
     maxMile.toLocaleString("zh-TW");
 
-  const lastMaint = sortedServiceRecords.find(r => r.category === "保養");
+  const lastMaint = getLastMaintenanceRecord();
   document.getElementById("statLastMaintenance").textContent =
-    lastMaint ? lastMaint.date.substring(0, 7) : "—";
+    lastMaint?.date ? lastMaint.date.substring(0, 7) : "—";
 
   const recentTotal = serviceRecords.reduce((sum, r) => {
     const d = parseDate(r.date);
@@ -1053,21 +1506,11 @@ function updateStats() {
     ? formatDateYMD(addMonths(warrantyStart, WARRANTY_MONTHS))
     : "—";
 
-  const nextMaintEl = document.getElementById("statNextMaintenance");
-  const maintenanceSchedule = getMaintenanceCalendarSchedule();
-  const nextMaintenanceParts = [];
-  if (Number.isFinite(maintenanceSchedule.dueMileage)) {
-    const remainingKm = Math.max(maintenanceSchedule.dueMileage - maxMile, 0);
-    nextMaintenanceParts.push(remainingKm > 0 ? `剩 ${remainingKm.toLocaleString("zh-TW")} km` : "已達里程");
-  }
-  if (maintenanceSchedule.dueDate) {
-    nextMaintenanceParts.push(formatDateYMD(maintenanceSchedule.dueDate));
-  }
-  nextMaintEl.textContent = nextMaintenanceParts.join(" · ") || "—";
+  renderMaintenanceHero(getMaintenanceSchedule(today));
 
   const fuelAdditiveEl = document.getElementById("statFuelAdditive");
   const fuelAdditiveLabel = document.getElementById("statFuelAdditiveLabel");
-  const lastFuelAdditive = sorted.find(r => recordMatchesTerms(r, ["汽油精"]));
+  const lastFuelAdditive = getRecordsNewestFirst().find(r => recordMatchesRule(r, FUEL_ADDITIVE_RULE));
   const lastFuelMileage = lastFuelAdditive ? Number(lastFuelAdditive.mileage) : null;
   if (!lastFuelAdditive) {
     fuelAdditiveEl.textContent = "未記錄";
@@ -1091,241 +1534,287 @@ function updateStats() {
   }
 }
 
-function getLatestMatchingRecord(terms) {
-  return [...records]
-    .sort(compareRecordsNewestFirst)
-    .find(r => recordMatchesTerms(r, terms));
+function renderMaintenanceHero(schedule) {
+  const valueEl = document.getElementById("statNextMaintenance");
+  const metaEl = document.getElementById("statNextMaintenanceMeta");
+  const progressEl = document.getElementById("maintenanceProgress");
+  const barEl = document.getElementById("maintenanceProgressBar");
+  const container = document.getElementById("dashboardNextService");
+  if (container?.dataset) container.dataset.status = schedule.status;
+  valueEl.textContent = schedule.status === "due" && schedule.remainingKm == null
+    ? "該保養"
+    : describeMaintenanceRemaining(schedule);
+  if (metaEl) metaEl.textContent = describeMaintenanceDates(schedule);
+  if (progressEl && barEl) {
+    progressEl.hidden = schedule.progress == null;
+    progressEl.className = "maintenance-progress maintenance-progress-" + schedule.status;
+    progressEl.setAttribute("aria-valuenow", String(schedule.usedKm ?? 0));
+    progressEl.setAttribute("aria-valuetext", valueEl.textContent);
+    barEl.style.width = Math.round((schedule.progress ?? 0) * 100) + "%";
+  }
 }
 
-function buildTrackerState(rule) {
-  const currentMileage = getEffectiveCurrentMileage();
-  const latest = getLatestMatchingRecord(rule.terms);
+function getLatestMatchingRecord(rule) {
+  return getRecordsNewestFirst().find(r => recordMatchesRule(r, rule));
+}
+
+function formatTimeRemaining(days) {
+  return days > 60 ? `剩 ${Math.floor(days / 30.44)} 個月` : `剩 ${days} 天`;
+}
+
+function buildDateTrackerState({ dueDate, soonDate, today, meta, next }) {
+  const daysLeft = diffDays(dueDate, today);
+  if (daysLeft <= 0) return { status: "due", value: "該處理", meta, next, dueDate };
+  return { status: today >= soonDate ? "soon" : "ok", value: formatTimeRemaining(daysLeft), meta, next, dueDate };
+}
+
+function buildTrackerState(rule, today = now()) {
+  if (rule.maintenance) return buildMaintenanceTrackerState(getMaintenanceSchedule(today));
+  const latest = getLatestMatchingRecord(rule);
+
   if (!latest && rule.firstDueMonths) {
     const startDate = parseDate(rule.firstDueFrom);
     if (!startDate) {
       return { status: "missing", value: "缺日期", meta: "缺少新車起算日" };
     }
-    const firstDueDate = addMonths(startDate, rule.firstDueMonths);
-    const remainingMonths = diffMonths(new Date(), firstDueDate);
-    const dueLabel = formatDateYMD(firstDueDate);
-    if (remainingMonths <= 0) {
-      return {
-        status: "due",
-        value: "該驗車",
-        meta: `下一次約 ${dueLabel}`,
-        next: rule.firstDueMeta || ""
-      };
-    }
-    return {
-      status: "ok",
-      value: "剩 " + remainingMonths + " 個月",
-      meta: `下一次約 ${dueLabel}`,
+    const dueDate = addMonths(startDate, rule.firstDueMonths);
+    return buildDateTrackerState({
+      dueDate,
+      soonDate: addMonths(dueDate, -1),
+      today,
+      meta: `下一次約 ${formatDateYMD(dueDate)}`,
       next: rule.firstDueMeta || ""
-    };
-  }
-  if (!latest) {
-    const baselineDate = getVehicleBaselineDate();
-    const baselineMileage = getVehicleBaselineMileage();
-    if (rule.intervalKm) {
-      const usedKm = Math.max(currentMileage - baselineMileage, 0);
-      const meta = `${getBaselineMetaPrefix()} / 已跑 ${usedKm.toLocaleString("zh-TW")} km`;
-      if (usedKm >= rule.dueKm) {
-        return { status: "due", value: "該處理", meta };
-      }
-      if (usedKm >= rule.intervalKm) {
-        return { status: "soon", value: "可安排", meta };
-      }
-      return {
-        status: "ok",
-        value: "剩 " + (rule.intervalKm - usedKm).toLocaleString("zh-TW") + " km",
-        meta,
-        next: "尚無更換紀錄，先以新車交車基準推估。"
-      };
-    }
-    if (rule.intervalMonths && baselineDate) {
-      const usedMonths = diffMonths(baselineDate);
-      const nextDate = addMonths(baselineDate, rule.intervalMonths);
-      const nextLabel = formatDateYMD(nextDate);
-      const next = `交車 ${formatDateYM(baselineDate)} / 已過 ${usedMonths} 個月`;
-      if (usedMonths >= rule.dueMonths) {
-        return { status: "due", value: "該處理", meta: `下一次約 ${nextLabel}`, next };
-      }
-      if (usedMonths >= rule.intervalMonths) {
-        return { status: "soon", value: "可安排", meta: `下一次約 ${nextLabel}`, next };
-      }
-      return {
-        status: "ok",
-        value: "剩 " + (rule.intervalMonths - usedMonths) + " 個月",
-        meta: `下一次約 ${nextLabel}`,
-        next: next + " / 尚無更換紀錄，先以新車交車基準推估。"
-      };
-    }
-    return {
-      status: "missing",
-      value: "未記錄",
-      meta: rule.intervalKm
-        ? `建議每 ${rule.intervalKm.toLocaleString("zh-TW")} km 檢查`
-        : `建議每 ${rule.intervalMonths} 個月檢查`
-    };
+    });
   }
 
-  if (rule.intervalKm) {
-    const lastMileage = Number(latest.mileage);
-    if (!Number.isFinite(lastMileage) || lastMileage <= 0 || !currentMileage) {
+  if (rule.dueKm) {
+    const baseMileage = latest ? Number(latest.mileage) : getVehicleBaselineMileage();
+    if (latest && (!Number.isFinite(baseMileage) || baseMileage <= 0)) {
       return {
         status: "missing",
         value: "缺里程",
         meta: latest.date ? `最近 ${latest.date}` : "最近紀錄缺少里程"
       };
     }
-    const usedKm = Math.max(currentMileage - lastMileage, 0);
-    if (usedKm >= rule.dueKm) {
-      return {
-        status: "due",
-        value: "該處理",
-        meta: `上次 ${lastMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
-      };
-    }
-    if (usedKm >= rule.intervalKm) {
-      return {
-        status: "soon",
-        value: "可安排",
-        meta: `上次 ${lastMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
-      };
-    }
+    const usedKm = Math.max(getEffectiveCurrentMileage() - baseMileage, 0);
+    const meta = latest
+      ? `上次 ${baseMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
+      : `${getBaselineMetaPrefix()} / 已跑 ${usedKm.toLocaleString("zh-TW")} km`;
+    const next = latest ? "" : "尚無更換紀錄，先以新車交車基準推估。";
+    if (usedKm >= rule.dueKm) return { status: "due", value: "該處理", meta, next };
     return {
-      status: "ok",
-      value: "剩 " + (rule.intervalKm - usedKm).toLocaleString("zh-TW") + " km",
-      meta: `上次 ${lastMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
+      status: usedKm >= rule.soonKm ? "soon" : "ok",
+      value: `剩 ${(rule.dueKm - usedKm).toLocaleString("zh-TW")} km`,
+      meta,
+      next
     };
   }
 
-  const latestDate = parseDate(latest.date);
-  if (!latestDate) {
-    return { status: "missing", value: "缺日期", meta: "最近紀錄缺少日期" };
+  const baseDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
+  if (!baseDate) {
+    return { status: "missing", value: "缺日期", meta: latest ? "最近紀錄缺少日期" : "缺少交車日" };
   }
-  const usedMonths = diffMonths(latestDate);
-  const nextDate = addMonths(latestDate, rule.intervalMonths);
-  const nextLabel = formatDateYMD(nextDate);
-  if (usedMonths >= rule.dueMonths) {
-    return {
-      status: "due",
-      value: "該處理",
-      meta: `下一次約 ${nextLabel}`,
-      next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
-    };
-  }
-  if (usedMonths >= rule.intervalMonths) {
-    return {
-      status: "soon",
-      value: "可安排",
-      meta: `下一次約 ${nextLabel}`,
-      next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
-    };
-  }
-  return {
-    status: "ok",
-    value: "剩 " + (rule.intervalMonths - usedMonths) + " 個月",
-    meta: `下一次約 ${nextLabel}`,
-    next: `上次 ${latest.date.substring(0, 7)} / 已過 ${usedMonths} 個月`
-  };
+  const dueDate = addMonths(baseDate, rule.dueMonths);
+  const elapsedMonths = diffMonths(baseDate, today);
+  return buildDateTrackerState({
+    dueDate,
+    soonDate: addMonths(baseDate, rule.soonMonths),
+    today,
+    meta: `下一次約 ${formatDateYMD(dueDate)}`,
+    next: latest
+      ? `上次 ${latest.date.substring(0, 7)} / 已過 ${elapsedMonths} 個月`
+      : `交車 ${formatDateYM(baseDate)} / 已過 ${elapsedMonths} 個月 / 尚無紀錄，先以交車日推估。`
+  });
+}
+
+// 定期保養：保養類別（排除換位、定位、變速箱等專項），或提到換機油的保養／更換／維修紀錄。
+const ROUTINE_SERVICE_PATTERN = /定期保養|機油|小保養|大保養|[0-9][0-9,]*\s*(?:公里|km|k)\s*保養/i;
+const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|變速箱|DSG|冷氣|空調|電瓶|煞車|雨刷|燈泡|水箱|火星塞/i;
+
+function isRoutineMaintenanceRecord(record) {
+  if (!record || isMileageUpdateRecord(record)) return false;
+  const text = `${record.detail || ""} ${record.note || ""}`;
+  const mentionsRoutine = ROUTINE_SERVICE_PATTERN.test(stripPhrases(text, OIL_CHECK_PHRASES));
+  if (record.category === "保養") return mentionsRoutine || !SPECIFIC_SERVICE_PATTERN.test(text);
+  if (record.category === "更換" || record.category === "維修") return mentionsRoutine;
+  return false;
 }
 
 function getLastMaintenanceRecord() {
-  return [...getServiceRecords()]
-    .sort(compareRecordsNewestFirst)
-    .find(r => r.category === "保養");
+  return getRecordsNewestFirst().find(isRoutineMaintenanceRecord);
 }
 
-function getMaintenanceActionState() {
-  const currentMileage = getEffectiveCurrentMileage();
-  const latest = getLastMaintenanceRecord();
-  if (!latest) {
+// 每天最高里程的時間序列（含交車基準），用來推估開車速度。
+function getMileagePoints() {
+  return cachedForRender("mileagePoints", () => {
+    const byDate = new Map();
     const baselineDate = getVehicleBaselineDate();
-    const baselineMileage = getVehicleBaselineMileage();
-    const usedKm = Math.max(currentMileage - baselineMileage, 0);
-    const usedMonths = baselineDate ? diffMonths(baselineDate) : null;
-    const nextMileage = baselineMileage + MAINTENANCE_INTERVAL_KM;
-    const nextDate = baselineDate ? addMonths(baselineDate, MAINTENANCE_INTERVAL_MONTHS) : null;
-    const metaParts = [
-      "新車交車基準",
-      "下次約 " + nextMileage.toLocaleString("zh-TW") + " km"
-    ];
-    if (nextDate) metaParts.push("或 " + formatDateYMD(nextDate));
-    metaParts.push("已跑 " + usedKm.toLocaleString("zh-TW") + " km");
-    if (usedMonths != null) metaParts.push("已過 " + usedMonths + " 個月");
+    if (baselineDate) byDate.set(formatDateYMD(baselineDate), getVehicleBaselineMileage());
+    records.forEach(record => {
+      const date = parseDate(record?.date);
+      const mileage = Number(record?.mileage);
+      if (!date || !Number.isFinite(mileage) || mileage <= 0) return;
+      const key = formatDateYMD(date);
+      byDate.set(key, Math.max(byDate.get(key) ?? 0, mileage));
+    });
+    return [...byDate.entries()]
+      .map(([date, mileage]) => ({ date: parseDate(date), mileage }))
+      .sort((a, b) => a.date - b.date);
+  });
+}
 
-    if (usedKm >= MAINTENANCE_DUE_KM || (usedMonths != null && usedMonths >= MAINTENANCE_DUE_MONTHS)) {
-      return {
-        status: "due",
-        name: "安排首保/定期保養",
-        statusText: "該保養",
-        meta: metaParts.join(" / ")
-      };
+function getDrivingPace() {
+  return cachedForRender("drivingPace", () => {
+    const points = getMileagePoints();
+    if (points.length < 2) return null;
+    const maxMileage = Math.max(...points.map(point => point.mileage));
+    const latest = points.filter(point => point.mileage === maxMileage).pop();
+    const windowStart = addDays(latest.date, -DRIVING_PACE_WINDOW_DAYS);
+    let anchor = points.find(point => point.date >= windowStart && point.date < latest.date);
+    if (!anchor || (latest.date - anchor.date) / 86400000 < DRIVING_PACE_MIN_DAYS) {
+      anchor = points.find(point => point.date < latest.date);
     }
-    if (usedKm >= MAINTENANCE_INTERVAL_KM || (usedMonths != null && usedMonths >= MAINTENANCE_INTERVAL_MONTHS)) {
-      return {
-        status: "soon",
-        name: "安排首保/定期保養",
-        statusText: "可安排",
-        meta: metaParts.join(" / ")
-      };
+    if (!anchor) return null;
+    const days = (latest.date - anchor.date) / 86400000;
+    const distance = latest.mileage - anchor.mileage;
+    if (days < 7 || distance <= 0) return null;
+    return {
+      kmPerDay: distance / days,
+      days: Math.round(days),
+      latestDate: latest.date,
+      latestMileage: latest.mileage
+    };
+  });
+}
+
+function projectMileageDate(targetMileage) {
+  const pace = getDrivingPace();
+  if (!pace || !Number.isFinite(targetMileage) || targetMileage <= pace.latestMileage) return null;
+  return addDays(pace.latestDate, Math.ceil((targetMileage - pace.latestMileage) / pace.kmPerDay));
+}
+
+function getMaintenanceSchedule(today = now()) {
+  return cachedForRender("maintenanceSchedule:" + formatDateYMD(today), () => {
+    const latest = getLastMaintenanceRecord();
+    const latestMileage = Number(latest?.mileage);
+    const baseMileage = latest
+      ? (Number.isFinite(latestMileage) && latestMileage > 0 ? latestMileage : null)
+      : getVehicleBaselineMileage();
+    const baseDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
+    const currentMileage = getEffectiveCurrentMileage();
+    const dueMileage = baseMileage == null ? null : baseMileage + MAINTENANCE_INTERVAL_KM;
+    const remainingKm = dueMileage == null ? null : dueMileage - currentMileage;
+    const usedKm = baseMileage == null ? null : Math.max(currentMileage - baseMileage, 0);
+    const timeDueDate = baseDate ? addMonths(baseDate, MAINTENANCE_INTERVAL_MONTHS) : null;
+    const projectedDate = remainingKm != null && remainingKm > 0 ? projectMileageDate(dueMileage) : null;
+    const dueDate = [projectedDate, timeDueDate].filter(Boolean).sort((a, b) => a - b)[0] || null;
+    const daysToTimeDue = timeDueDate ? diffDays(timeDueDate, today) : null;
+    const daysToProjected = projectedDate ? diffDays(projectedDate, today) : null;
+
+    let status = "ok";
+    if ((remainingKm != null && remainingKm <= 0) || (daysToTimeDue != null && daysToTimeDue <= 0)) {
+      status = "due";
+    } else if (
+      (remainingKm != null && remainingKm <= MAINTENANCE_SOON_KM) ||
+      (daysToTimeDue != null && daysToTimeDue <= MAINTENANCE_SOON_DAYS) ||
+      (daysToProjected != null && daysToProjected <= 14)
+    ) {
+      status = "soon";
     }
-    return {
-      status: "ok",
-      name: "首保/定期保養",
-      statusText: "正常",
-      meta: metaParts.join(" / ")
-    };
-  }
 
-  const lastMileage = Number(latest.mileage);
-  const latestDate = parseDate(latest.date);
-  const usedKm = Number.isFinite(lastMileage) && currentMileage
-    ? Math.max(currentMileage - lastMileage, 0)
-    : null;
-  const usedMonths = latestDate ? diffMonths(latestDate) : null;
-  const nextMileage = Number.isFinite(lastMileage) && lastMileage > 0
-    ? lastMileage + MAINTENANCE_INTERVAL_KM
-    : null;
-  const nextDate = latestDate ? addMonths(latestDate, MAINTENANCE_INTERVAL_MONTHS) : null;
-  const metaParts = [];
-  if (nextMileage) metaParts.push("下次約 " + nextMileage.toLocaleString("zh-TW") + " km");
-  if (nextDate) metaParts.push("或 " + formatDateYMD(nextDate));
-  if (usedKm != null) metaParts.push("已跑 " + usedKm.toLocaleString("zh-TW") + " km");
-  if (usedMonths != null) metaParts.push("已過 " + usedMonths + " 個月");
+    return {
+      latest,
+      baseDate,
+      baseMileage,
+      dueMileage,
+      remainingKm,
+      usedKm,
+      timeDueDate,
+      timeDuePassed: daysToTimeDue != null && daysToTimeDue <= 0,
+      projectedDate,
+      projectedPassed: daysToProjected != null && daysToProjected <= 0,
+      dueDate,
+      pace: getDrivingPace(),
+      status,
+      progress: usedKm == null ? null : Math.min(usedKm / MAINTENANCE_INTERVAL_KM, 1)
+    };
+  });
+}
 
-  if ((usedKm != null && usedKm >= MAINTENANCE_DUE_KM) || (usedMonths != null && usedMonths >= MAINTENANCE_DUE_MONTHS)) {
-    return {
-      status: "due",
-      name: "安排定期保養",
-      statusText: "該保養",
-      meta: metaParts.join(" / ")
-    };
+function describeMaintenanceRemaining(schedule) {
+  if (schedule.remainingKm == null) {
+    return schedule.timeDueDate ? formatDateYMD(schedule.timeDueDate) : "—";
   }
-  if ((usedKm != null && usedKm >= MAINTENANCE_INTERVAL_KM) || (usedMonths != null && usedMonths >= MAINTENANCE_INTERVAL_MONTHS)) {
-    return {
-      status: "soon",
-      name: "安排定期保養",
-      statusText: "可安排",
-      meta: metaParts.join(" / ")
-    };
+  if (schedule.remainingKm > 0) return `剩 ${schedule.remainingKm.toLocaleString("zh-TW")} km`;
+  if (schedule.remainingKm === 0) return "已達保養里程";
+  return `超過 ${Math.abs(schedule.remainingKm).toLocaleString("zh-TW")} km`;
+}
+
+function describeMaintenanceDates(schedule) {
+  if (schedule.remainingKm != null && schedule.remainingKm <= 0) return "已達保養里程，建議盡快安排";
+  if (schedule.timeDuePassed) return `已滿 ${MAINTENANCE_INTERVAL_MONTHS} 個月，建議盡快安排`;
+  const parts = [];
+  if (schedule.projectedDate) {
+    parts.push(schedule.projectedPassed
+      ? `預估 ${formatDateYMD(schedule.projectedDate)} 已到，請更新里程`
+      : `預估 ${formatDateYMD(schedule.projectedDate)}`);
   }
+  if (schedule.timeDueDate) parts.push(`最晚 ${formatDateYMD(schedule.timeDueDate)}`);
+  return parts.join(" · ") || "依目前保養紀錄推估";
+}
+
+function buildMaintenanceCalendarDescription(schedule) {
+  const parts = [];
+  if (schedule.projectedDate && schedule.pace) {
+    parts.push(`預估 ${formatDateYMD(schedule.projectedDate)} 達 ${schedule.dueMileage.toLocaleString("zh-TW")} 公里（近 ${schedule.pace.days} 天平均每日約 ${Math.round(schedule.pace.kmPerDay)} 公里）`);
+  } else if (schedule.dueMileage != null) {
+    parts.push(`${schedule.dueMileage.toLocaleString("zh-TW")} 公里`);
+  }
+  if (schedule.timeDueDate) parts.push(`最晚 ${formatDateYMD(schedule.timeDueDate)}`);
+  return parts.join("，") + "，以先到者為準";
+}
+
+function buildMaintenanceTrackerState(schedule) {
+  const usedText = schedule.usedKm != null ? ` / 已跑 ${schedule.usedKm.toLocaleString("zh-TW")} km` : "";
+  const meta = schedule.latest
+    ? `上次 ${schedule.baseMileage != null ? schedule.baseMileage.toLocaleString("zh-TW") + " km" : schedule.latest.date}${usedText}`
+    : `${getBaselineMetaPrefix()}${usedText}`;
   return {
-    status: "ok",
-    name: "定期保養",
-    statusText: "正常",
-    meta: metaParts.join(" / ") || "最近保養：" + (latest.date || "未填日期")
+    status: schedule.status,
+    value: schedule.status === "due" ? "該保養" : describeMaintenanceRemaining(schedule),
+    meta,
+    next: describeMaintenanceDates(schedule)
   };
 }
 
-function hasMatchingRecordInYear(terms, year) {
-  return records.some(r => getYear(r.date) === String(year) && recordMatchesTerms(r, terms));
+function getMaintenanceActionState(today = now()) {
+  const schedule = getMaintenanceSchedule(today);
+  const label = schedule.latest ? "定期保養" : "首保/定期保養";
+  const metaParts = [];
+  if (!schedule.latest) metaParts.push("新車交車基準");
+  if (schedule.dueMileage != null) metaParts.push(`${schedule.dueMileage.toLocaleString("zh-TW")} km`);
+  if (schedule.projectedDate) metaParts.push(`預估 ${formatDateYMD(schedule.projectedDate)}`);
+  if (schedule.timeDueDate) metaParts.push(`最晚 ${formatDateYMD(schedule.timeDueDate)}`);
+  if (schedule.usedKm != null) metaParts.push(`已跑 ${schedule.usedKm.toLocaleString("zh-TW")} km`);
+  return {
+    status: schedule.status,
+    name: schedule.status === "ok" ? label : "安排" + label,
+    statusText: schedule.status === "due" ? "該保養" : describeMaintenanceRemaining(schedule),
+    meta: metaParts.join(" / "),
+    dueDate: schedule.dueDate,
+    dueMileage: schedule.dueMileage,
+    calendarType: "maintenance",
+    calendarDescription: buildMaintenanceCalendarDescription(schedule)
+  };
 }
 
-function getFixedCostState(item, today = new Date()) {
+function hasMatchingRecordInYear(rule, year) {
+  return records.some(r => getYear(r.date) === String(year) && recordMatchesRule(r, rule));
+}
+
+function getFixedCostState(item, today = now()) {
   const year = today.getFullYear();
-  const paidThisYear = hasMatchingRecordInYear(item.terms, year);
+  const paidThisYear = hasMatchingRecordInYear(item, year);
   const dueStart = new Date(year, item.month - 1, item.startDay);
   const dueEnd = new Date(year, item.month - 1, item.endDay);
   const daysToStart = diffDays(dueStart, today);
@@ -1381,14 +1870,14 @@ function getFixedCostState(item, today = new Date()) {
 }
 
 function getNextLegalState() {
-  const today = new Date();
+  const today = now();
   const states = FIXED_OWNER_COSTS.map(item => getFixedCostState(item, today));
   const actionable = states.find(state => state.status === "due" || state.status === "soon");
   if (actionable) return actionable;
   return [...states].sort((a, b) => a.dueDate - b.dueDate)[0] || null;
 }
 
-function getWarrantyState(today = new Date()) {
+function getWarrantyState(today = now()) {
   const startDate = parseDate(WARRANTY_START_DATE);
   if (!startDate) return null;
   const endDate = addMonths(startDate, WARRANTY_MONTHS);
@@ -1423,28 +1912,21 @@ function getWarrantyState(today = new Date()) {
   };
 }
 
-function getMaintenanceCalendarSchedule() {
-  const latest = getLastMaintenanceRecord();
-  const baselineDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
-  const baselineMileage = latest && Number.isFinite(Number(latest.mileage))
-    ? Number(latest.mileage)
-    : getVehicleBaselineMileage();
+// 依里程追蹤的項目：用開車速度推估日期，才能加入行事曆。
+function getTrackerCalendarSchedule(rule, state = buildTrackerState(rule)) {
+  if (rule.maintenance) return {};
+  if (state.dueDate) return { dueDate: state.dueDate, calendarType: "vehicle-reminder" };
+  if (!rule.dueKm) return {};
+  const latest = getLatestMatchingRecord(rule);
+  const baseMileage = latest ? Number(latest.mileage) : getVehicleBaselineMileage();
+  const targetMileage = baseMileage + rule.dueKm;
+  const dueDate = Number.isFinite(baseMileage) ? projectMileageDate(targetMileage) : null;
+  if (!dueDate) return {};
   return {
-    dueDate: baselineDate ? addMonths(baselineDate, MAINTENANCE_INTERVAL_MONTHS) : null,
-    dueMileage: Number.isFinite(baselineMileage) ? baselineMileage + MAINTENANCE_INTERVAL_KM : null,
-    calendarType: "maintenance"
+    dueDate,
+    calendarType: "vehicle-reminder",
+    calendarDescription: `預估 ${formatDateYMD(dueDate)} 達 ${targetMileage.toLocaleString("zh-TW")} 公里，請依實際里程安排`
   };
-}
-
-function getTrackerCalendarSchedule(rule) {
-  if (!rule.intervalMonths) return {};
-  const latest = getLatestMatchingRecord(rule.terms);
-  const baselineDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
-  const firstDueDate = !latest && rule.firstDueMonths && parseDate(rule.firstDueFrom)
-    ? addMonths(parseDate(rule.firstDueFrom), rule.firstDueMonths)
-    : null;
-  const dueDate = firstDueDate || (baselineDate ? addMonths(baselineDate, rule.intervalMonths) : null);
-  return dueDate ? { dueDate, calendarType: "vehicle-reminder" } : {};
 }
 
 function getCalendarTask(action) {
@@ -1452,9 +1934,9 @@ function getCalendarTask(action) {
   if (!dueDate) return null;
 
   const date = formatDateYMD(dueDate);
-  const description = Number.isFinite(action.dueMileage)
+  const description = action.calendarDescription || (Number.isFinite(action.dueMileage)
     ? `預計 ${date} 或 ${Number(action.dueMileage).toLocaleString("zh-TW")} 公里，以先到者為準`
-    : action.meta || `預計日期 ${date}`;
+    : action.meta || `預計日期 ${date}`);
   return {
     title: `Superb ${action.name}`,
     date,
@@ -1466,13 +1948,82 @@ function getCalendarTask(action) {
 function openCalendarReminder(task, invoker = null) {
   if (!task) return;
   pendingCalendarTask = { ...task };
-  calendarReminderInvoker = invoker || document.activeElement || null;
   document.getElementById("calendarReminderTitle").textContent = task.title;
   document.getElementById("calendarReminderDate").textContent = task.date;
   document.getElementById("calendarReminderCondition").textContent = task.description || "";
   document.getElementById("calendarReminderAlarms").textContent = "提醒：7 天前、1 天前";
-  document.getElementById("calendarReminderModal").style.display = "flex";
-  document.getElementById("calendarReminderConfirmBtn")?.focus();
+  openDialog("calendarReminderModal", { invoker, focusId: "calendarReminderConfirmBtn" });
+}
+
+// ============================================================
+// 對話框：統一開關、Esc、焦點循環與防手滑
+// ============================================================
+const DIALOG_CLOSERS = {
+  modal: () => closeModal(),
+  mileageModal: () => closeMileageModal(),
+  photoModal: () => closePhotoModal(),
+  aiModal: () => closeAiModal(),
+  fuelLogModal: () => closeFuelLogModal(),
+  fuelModal: () => closeFuelModal(),
+  deleteModal: () => closeDeleteModal(),
+  backupRestoreModal: () => closeBackupRestoreModal(),
+  duplicateModal: () => closeDuplicateModal(),
+  calendarReminderModal: () => closeCalendarReminder(),
+  quickEntryModal: () => closeQuickEntryMenu()
+};
+const dialogStack = [];
+
+function openDialog(id, { invoker = null, focusId = "" } = {}) {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  const opener = invoker?.focus ? invoker : document.activeElement;
+  const existing = dialogStack.findIndex(entry => entry.id === id);
+  if (existing >= 0) dialogStack.splice(existing, 1);
+  dialogStack.push({ id, invoker: opener?.focus ? opener : null });
+  overlay.style.display = "flex";
+  setDialogFormDirty(id, false);
+  const target = focusId ? document.getElementById(focusId) : null;
+  if (target?.focus) target.focus();
+}
+
+function closeDialog(id, { restoreFocus = true } = {}) {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  overlay.style.display = "none";
+  setDialogFormDirty(id, false);
+  const index = dialogStack.findIndex(entry => entry.id === id);
+  const [entry] = index >= 0 ? dialogStack.splice(index, 1) : [];
+  if (restoreFocus && entry?.invoker?.focus) entry.invoker.focus();
+  resumeDeferredSync();
+}
+
+function getTopDialogId() {
+  for (let index = dialogStack.length - 1; index >= 0; index -= 1) {
+    const { id } = dialogStack[index];
+    if (document.getElementById(id)?.style.display === "flex") return id;
+  }
+  return "";
+}
+
+function getDialogForm(id) {
+  return document.getElementById(id)?.querySelector?.("form") || null;
+}
+
+function setDialogFormDirty(id, dirty) {
+  const form = getDialogForm(id);
+  if (!form?.dataset) return;
+  if (dirty) form.dataset.dirty = "true";
+  else delete form.dataset.dirty;
+}
+
+// 點背景或按 Esc：表單有未儲存的內容時不關閉，避免手滑丟掉輸入。
+function requestDialogDismiss(id) {
+  if (getDialogForm(id)?.dataset?.dirty === "true") {
+    showToast("尚未儲存；要放棄請按「取消」。");
+    return false;
+  }
+  DIALOG_CLOSERS[id]?.();
+  return true;
 }
 
 function getModalFocusableElements(modal) {
@@ -1499,10 +2050,8 @@ function trapModalFocus(event, modal) {
 }
 
 function closeCalendarReminder() {
-  document.getElementById("calendarReminderModal").style.display = "none";
+  closeDialog("calendarReminderModal");
   pendingCalendarTask = null;
-  if (calendarReminderInvoker?.focus) calendarReminderInvoker.focus();
-  calendarReminderInvoker = null;
 }
 
 function getCalendarFilename(task) {
@@ -1543,8 +2092,8 @@ function getDataHealthText() {
     getCurrentMileage() > 0 || Number.isFinite(getVehicleBaselineMileage()),
     !!getLastMaintenanceRecord() || !!getVehicleBaselineDate(),
     getFuelLogs().length > 0,
-    !!getLatestMatchingRecord(["保險", "強制險", "任意險"]),
-    !!getLatestMatchingRecord(["牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費"])
+    !!getLatestMatchingRecord(CONSUMABLE_RULES.find(rule => rule.name === "保險")),
+    !!getLatestMatchingRecord(TAX_RULE)
   ];
   const done = checks.filter(Boolean).length;
   return `${done}/${checks.length} 項`;
@@ -1553,7 +2102,7 @@ function getDataHealthText() {
 function buildOwnerActions() {
   const actions = [];
   const currentMileage = getCurrentMileage();
-  const maintenance = { ...getMaintenanceActionState(), ...getMaintenanceCalendarSchedule() };
+  const maintenance = getMaintenanceActionState();
   const warranty = getWarrantyState();
   const fuelStats = getFuelStats();
 
@@ -1569,7 +2118,9 @@ function buildOwnerActions() {
   }
   actions.push(maintenance);
 
+  // 定期保養已由上面的保養項目追蹤，不重複列出。
   CONSUMABLE_RULES
+    .filter(rule => !rule.maintenance)
     .map(rule => ({ rule, state: buildTrackerState(rule) }))
     .filter(({ state }) => state.status === "due" || state.status === "soon" || state.status === "missing")
     .forEach(({ rule, state }) => {
@@ -1578,7 +2129,7 @@ function buildOwnerActions() {
         name: rule.name,
         statusText: state.value,
         meta: [state.meta, state.next].filter(Boolean).join(" / "),
-        ...getTrackerCalendarSchedule(rule)
+        ...getTrackerCalendarSchedule(rule, state)
       });
     });
 
@@ -1734,7 +2285,7 @@ function getOwnershipCostBucketKey(record, buckets) {
   const explicitKey = OWNERSHIP_CATEGORY_BUCKETS[record.category];
   if (explicitKey) return explicitKey;
 
-  const text = `${record.category || ""} ${record.detail || ""} ${record.note || ""}`;
+  const text = stripPhrases(`${record.category || ""} ${record.detail || ""} ${record.note || ""}`, ["保險桿", "保險絲"]);
   const inferred = buckets.find(item =>
     item.key !== "other" && item.terms.some(term => text.includes(term))
   );
@@ -1832,16 +2383,19 @@ function renderOwnershipCostPanel() {
 function renderDataQualityPanel() {
   const panel = document.getElementById("dataQualityPanel");
   if (!panel) return;
-  const issues = getDataQualityIssues().sort((a, b) => b.date.localeCompare(a.date));
+  const issues = [...getDataQualityIssues()].sort((a, b) => b.date.localeCompare(a.date));
   const summary = issues.length ? `${issues.length} 項待確認` : "未發現明顯異常";
   const content = issues.length
     ? `<div class="data-quality-list">${issues.map(issue => `
         <div class="data-quality-item">
           <strong>${escapeHtml(issue.title)}</strong>
           <span>${escapeHtml(issue.detail)}</span>
+          ${Number.isInteger(issue.recordIndex) && issue.recordIndex >= 0
+            ? `<button class="btn btn-ghost btn-sm data-quality-open" type="button" data-quality-record="${issue.recordIndex}">開啟紀錄</button>`
+            : ""}
         </div>
       `).join("")}</div>`
-    : `<div class="data-quality-empty">目前的日期、里程與加滿油耗區間沒有明顯異常。</div>`;
+    : `<div class="data-quality-empty">目前的日期、里程、重複紀錄與加滿油耗區間沒有明顯異常。</div>`;
 
   panel.innerHTML = `
     <div class="data-quality-header">
@@ -1926,10 +2480,166 @@ function updateFilterSummary(filtered) {
 // ============================================================
 // 圖表
 // ============================================================
+// 圖表與 OCR 函式庫只在用到時才下載，首次開啟不必等 CDN。
+const scriptLoads = new Map();
+
+function loadScriptOnce(src, integrity = "") {
+  if (!scriptLoads.has(src)) {
+    scriptLoads.set(src, new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      if (integrity) {
+        script.integrity = integrity;
+        script.crossOrigin = "anonymous";
+      }
+      script.onload = () => resolve();
+      script.onerror = () => {
+        scriptLoads.delete(src);
+        reject(new Error("無法載入 " + src));
+      };
+      document.head.appendChild(script);
+    }));
+  }
+  return scriptLoads.get(src);
+}
+
+async function ensureChartLibrary() {
+  if (typeof Chart !== "undefined") return true;
+  try {
+    await loadScriptOnce(CHART_JS_URL, CHART_JS_SRI);
+    return typeof Chart !== "undefined";
+  } catch (error) {
+    console.error("圖表元件載入失敗", error);
+    return false;
+  }
+}
+
+// 只畫目前看得到的圖；切換分頁時再補畫。
+let chartBuildToken = 0;
 function buildCharts() {
-  if (typeof Chart === "undefined") return;
-  buildCostChart();
-  buildCategoryChart();
+  const showAnalysis = activeView === "analysis";
+  const showFuelTrend = activeView === "records" && activeRecordsSubtab === "fuel";
+  if (!showAnalysis && !showFuelTrend) return;
+  const token = ++chartBuildToken;
+  ensureChartLibrary().then(ready => {
+    if (!ready || token !== chartBuildToken) return;
+    if (activeView === "analysis") {
+      buildCostChart();
+      buildCategoryChart();
+    } else if (activeView === "records" && activeRecordsSubtab === "fuel") {
+      buildFuelTrendChart();
+    }
+  });
+}
+
+// 平均線是參考線而非資料系列：直接在線尾標示數值，不另設圖例。
+const fuelAverageLinePlugin = {
+  id: "fuelAverageLine",
+  afterDatasetsDraw(chart, _args, options) {
+    const value = options?.value;
+    const yScale = chart.scales.y;
+    if (!Number.isFinite(value) || !yScale) return;
+    const y = yScale.getPixelForValue(value);
+    const { left, right } = chart.chartArea;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(139,148,158,0.85)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#8b949e";
+    ctx.font = "11px 'Noto Sans TC', sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`平均 ${value.toFixed(1)}`, right, y - 3);
+    ctx.restore();
+  }
+};
+
+function buildFuelTrendChart() {
+  const canvas = document.getElementById("fuelTrendChart");
+  if (fuelTrendChart) {
+    fuelTrendChart.destroy();
+    fuelTrendChart = null;
+  }
+  const fuelStats = getFuelStats();
+  const segments = fuelStats.segments;
+  if (!canvas || segments.length < 2) return;
+
+  const suspiciousKeys = new Set(
+    getDataQualityIssues().filter(issue => issue.type === "fuel-outlier").map(issue => issue.key)
+  );
+  const isSuspicious = segment => suspiciousKeys.has(`fuel|${segment.date}|${segment.mileage}`);
+  const pointColors = segments.map(segment => isSuspicious(segment) ? FUEL_TREND_WARNING_COLOR : FUEL_TREND_COLOR);
+
+  fuelTrendChart = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: segments.map(segment => segment.date.slice(2).replace(/-/g, "/")),
+      datasets: [{
+        label: "油耗 km/L",
+        data: segments.map(segment => Number(segment.kmPerLiter.toFixed(2))),
+        borderColor: FUEL_TREND_COLOR,
+        borderWidth: 2,
+        borderJoinStyle: "round",
+        borderCapStyle: "round",
+        // 縱軸不從 0 開始，所以不填色、不平滑，避免誇大起伏。
+        fill: false,
+        tension: 0,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBorderWidth: 2,
+        pointBorderColor: "#161b22",
+        pointBackgroundColor: pointColors,
+        pointStyle: segments.map(segment => isSuspicious(segment) ? "triangle" : "circle")
+      }]
+    },
+    plugins: [fuelAverageLinePlugin],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        fuelAverageLine: { value: fuelStats.averageKmPerLiter },
+        tooltip: {
+          backgroundColor: "#1c2333",
+          borderColor: "#30363d",
+          borderWidth: 1,
+          titleColor: "#e6edf3",
+          bodyColor: "#c9d1d9",
+          callbacks: {
+            title: items => segments[items[0].dataIndex].date,
+            label: context => {
+              const segment = segments[context.dataIndex];
+              return [
+                ` ${segment.kmPerLiter.toFixed(1)} km/L${isSuspicious(segment) ? "（待確認）" : ""}`,
+                ` ${segment.distance.toLocaleString("zh-TW")} km · ${segment.liters.toFixed(1)} L`,
+                segment.costPerKm != null ? ` 每公里 NT$ ${segment.costPerKm.toFixed(2)}` : ""
+              ].filter(Boolean);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(48,54,61,0.5)" },
+          ticks: { color: "#8b949e", font: { size: 11 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 }
+        },
+        y: {
+          grace: "15%",
+          grid: { color: "rgba(48,54,61,0.5)" },
+          ticks: { color: "#8b949e", font: { size: 11 }, maxTicksLimit: 6, callback: value => Number(value).toFixed(1) }
+        }
+      }
+    }
+  });
 }
 
 function buildCostChart() {
@@ -2115,9 +2825,9 @@ function renderRecords() {
     <span style="text-align:right">操作</span>
   </div>`;
 
-  filtered.forEach(r => {
-    // 在原始 records 中找出真實 index
-    const origIdx = records.indexOf(r);
+  const indexByRecord = new Map(records.map((record, index) => [record, index]));
+  filtered.slice(0, recordsVisibleLimit).forEach(r => {
+    const origIdx = indexByRecord.get(r);
     const isStatus = isMileageUpdateRecord(r);
     const year = getYear(r.date);
     const monthDay = r.date ? r.date.substring(5) : "";
@@ -2170,46 +2880,62 @@ function renderRecords() {
     </div>`;
   });
 
+  const remaining = filtered.length - recordsVisibleLimit;
+  if (remaining > 0) {
+    html += `<button class="btn btn-ghost records-more" type="button" data-records-more>顯示更多（還有 ${remaining} 筆）</button>`;
+  }
   container.innerHTML = html;
+}
 
-  // 綁定編輯/刪除按鈕
-  container.querySelectorAll(".edit-btn").forEach(btn => {
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      openEditModal(parseInt(btn.dataset.idx));
-    });
-  });
-  container.querySelectorAll(".delete-btn").forEach(btn => {
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      openDeleteModal(parseInt(btn.dataset.idx));
-    });
-  });
+function resetRecordsPaging() {
+  recordsVisibleLimit = RECORDS_PAGE_SIZE;
 }
 
 // ============================================================
 // 新增/編輯 Modal
 // ============================================================
-function showFormMessage(type, text) {
-  const el = document.getElementById("formMessage");
+function showMessage(id, type, text) {
+  const el = document.getElementById(id);
   el.className = "form-message form-message-" + type;
   el.textContent = text;
 }
 
-function clearFormMessage() {
-  const el = document.getElementById("formMessage");
+// 清除訊息時一併重設「再按一次儲存」的里程確認。
+function clearMessage(id, formId = "") {
+  const el = document.getElementById(id);
   el.className = "form-message";
   el.textContent = "";
-  const saveBtn = document.querySelector("#recordForm button[type='submit']");
+  const saveBtn = formId ? document.querySelector(`#${formId} button[type='submit']`) : null;
   if (saveBtn) delete saveBtn.dataset.confirmedMileage;
 }
+
+function showFormMessage(type, text) { showMessage("formMessage", type, text); }
+function clearFormMessage() { clearMessage("formMessage", "recordForm"); }
+function showMileageMessage(type, text) { showMessage("mileageMessage", type, text); }
+function clearMileageMessage() { clearMessage("mileageMessage", "mileageForm"); }
+function showFuelMessage(type, text) { showMessage("fuelMessage", type, text); }
+function clearFuelMessage() { clearMessage("fuelMessage"); }
+function showFuelLogMessage(type, text) { showMessage("fuelLogMessage", type, text); }
+function clearFuelLogMessage() { clearMessage("fuelLogMessage", "fuelLogForm"); }
+function showPhotoMessage(type, text) { showMessage("photoMessage", type, text); }
+function clearPhotoMessage() { clearMessage("photoMessage"); }
+function showAiMessage(type, text) { showMessage("aiMessage", type, text); }
+function clearAiMessage() { clearMessage("aiMessage"); }
 
 function updateMileageHint(idx = parseInt(document.getElementById("editIndex").value)) {
   const maxMileage = getMaxMileage(idx);
   const el = document.getElementById("mileageHint");
-  el.textContent = maxMileage > 0
-    ? "目前最高里程 " + maxMileage.toLocaleString("zh-TW") + " km；補登舊資料可低於此數值。"
-    : "";
+  if (maxMileage <= 0) {
+    el.textContent = "";
+    return;
+  }
+  const mileage = parseInt(document.getElementById("formMileage").value, 10);
+  const warning = getMileageJumpWarning(mileage, document.getElementById("formDate").value, { excludeIndex: idx });
+  const delta = Number.isFinite(mileage) && mileage > maxMileage
+    ? "本次 +" + (mileage - maxMileage).toLocaleString("zh-TW") + " km"
+    : "補登舊資料可低於此數值";
+  el.textContent = "目前最高里程 " + maxMileage.toLocaleString("zh-TW") + " km；" + delta + "。" + (warning ? warning + "。" : "");
+  el.classList.toggle("form-help-warn", Boolean(warning));
 }
 
 function applyRecordTemplate(key) {
@@ -2230,7 +2956,7 @@ function openAddModal() {
   document.getElementById("formDate").value = getTodayString();
   clearFormMessage();
   updateMileageHint(-1);
-  document.getElementById("modal").style.display = "flex";
+  openDialog("modal");
 }
 
 function openEditModal(idx) {
@@ -2250,74 +2976,12 @@ function openEditModal(idx) {
   document.getElementById("formNote").value = r.note || "";
   clearFormMessage();
   updateMileageHint(idx);
-  document.getElementById("modal").style.display = "flex";
+  openDialog("modal");
 }
 
 function closeModal() {
-  document.getElementById("modal").style.display = "none";
+  closeDialog("modal");
   clearFormMessage();
-}
-
-function showMileageMessage(type, text) {
-  const el = document.getElementById("mileageMessage");
-  el.className = "form-message form-message-" + type;
-  el.textContent = text;
-}
-
-function clearMileageMessage() {
-  const el = document.getElementById("mileageMessage");
-  el.className = "form-message";
-  el.textContent = "";
-}
-
-function showFuelMessage(type, text) {
-  const el = document.getElementById("fuelMessage");
-  el.className = "form-message form-message-" + type;
-  el.textContent = text;
-}
-
-function clearFuelMessage() {
-  const el = document.getElementById("fuelMessage");
-  el.className = "form-message";
-  el.textContent = "";
-}
-
-function showFuelLogMessage(type, text) {
-  const el = document.getElementById("fuelLogMessage");
-  el.className = "form-message form-message-" + type;
-  el.textContent = text;
-}
-
-function clearFuelLogMessage() {
-  const el = document.getElementById("fuelLogMessage");
-  el.className = "form-message";
-  el.textContent = "";
-  const saveBtn = document.querySelector("#fuelLogForm button[type='submit']");
-  if (saveBtn) delete saveBtn.dataset.confirmedMileage;
-}
-
-function showPhotoMessage(type, text) {
-  const el = document.getElementById("photoMessage");
-  el.className = "form-message form-message-" + type;
-  el.textContent = text;
-}
-
-function clearPhotoMessage() {
-  const el = document.getElementById("photoMessage");
-  el.className = "form-message";
-  el.textContent = "";
-}
-
-function showAiMessage(type, text) {
-  const el = document.getElementById("aiMessage");
-  el.className = "form-message form-message-" + type;
-  el.textContent = text;
-}
-
-function clearAiMessage() {
-  const el = document.getElementById("aiMessage");
-  el.className = "form-message";
-  el.textContent = "";
 }
 
 function renderAiResultNote(text) {
@@ -2390,13 +3054,23 @@ function parseFuelPricePage(html) {
   };
 }
 
+// 牌價每週一 00:00（台灣時間）調整：快取只在同一週內、12 小時內有效。
+function getLastFuelPriceChange(nowMs = Date.now()) {
+  const taipeiOffsetMs = 8 * 60 * 60 * 1000;
+  const taipei = new Date(nowMs + taipeiOffsetMs);
+  const daysSinceMonday = (taipei.getUTCDay() + 6) % 7;
+  return Date.UTC(taipei.getUTCFullYear(), taipei.getUTCMonth(), taipei.getUTCDate() - daysSinceMonday) - taipeiOffsetMs;
+}
+
 function getFuelPriceCache({ allowStale = false } = {}) {
   try {
     const cached = JSON.parse(localStorage.getItem(FUEL_PRICE_CACHE_KEY) || "null");
     const data = normalizeFuelPriceData(cached);
     if (!data) return null;
     const cachedAt = Date.parse(cached.cachedAt || "");
-    const isFresh = Number.isFinite(cachedAt) && (Date.now() - cachedAt) <= FUEL_PRICE_CACHE_MAX_AGE_MS;
+    const isFresh = Number.isFinite(cachedAt) &&
+      (Date.now() - cachedAt) <= FUEL_PRICE_CACHE_MAX_AGE_MS &&
+      cachedAt >= getLastFuelPriceChange();
     return allowStale || isFresh ? data : null;
   } catch {
     return null;
@@ -2482,7 +3156,26 @@ function getLatestRecordedFuelPrice(fuelType) {
     .sort(compareFuelLogsNewestFirst)[0]?.unitPrice || null;
 }
 
-async function loadFuelPriceForSelectedType({ force = false } = {}) {
+function applyFuelPrice(data, fuelType, { preserveCostInput = false } = {}) {
+  const price = data.prices[fuelType];
+  document.getElementById("fuelLogUnitPriceInput").value = price.toFixed(1);
+  setFuelPriceStatus(`已帶入 ${data.source} ${fuelType} 牌價 ${price.toFixed(1)} 元/L${data.effectiveAt ? "，" + data.effectiveAt + " 實行" : ""}。`);
+  updateFuelLogCostFromDiscount({ preserveCostInput });
+}
+
+// 背景確認牌價是否有調整；使用者已手動改過油價或油品就不覆蓋。
+function refreshFuelPriceInBackground(fuelType, appliedPrice) {
+  fetchCurrentFuelPrices().then(data => {
+    const price = data.prices[fuelType];
+    const priceInput = document.getElementById("fuelLogUnitPriceInput");
+    if (!Number.isFinite(price) || document.getElementById("fuelLogTypeInput").value !== fuelType) return;
+    if (parseDecimalInput(priceInput.value) !== Number(appliedPrice.toFixed(1))) return;
+    if (Math.abs(price - appliedPrice) < 0.05) return;
+    applyFuelPrice(data, fuelType, { preserveCostInput: Boolean(document.getElementById("fuelLogCostInput").value) });
+  }).catch(() => {});
+}
+
+async function loadFuelPriceForSelectedType({ force = false, preferCache = true } = {}) {
   const typeInput = document.getElementById("fuelLogTypeInput");
   const priceInput = document.getElementById("fuelLogUnitPriceInput");
   if (!typeInput || !priceInput) return;
@@ -2494,15 +3187,23 @@ async function loadFuelPriceForSelectedType({ force = false } = {}) {
   }
   if (priceInput.value && !force) return;
 
+  // 本週已抓過的牌價立即填入，表單不必等網路；超過一小時再於背景確認。
+  const cached = preferCache ? getFuelPriceCache() : null;
+  const cachedPrice = cached?.prices?.[fuelType];
+  if (Number.isFinite(cachedPrice)) {
+    applyFuelPrice(cached, fuelType);
+    if (Date.now() - Date.parse(cached.cachedAt) > FUEL_PRICE_RECHECK_MS) {
+      refreshFuelPriceInBackground(fuelType, cachedPrice);
+    }
+    return;
+  }
+
   setFuelPriceStatus(`正在抓取全國加油站 ${fuelType} 今日牌價...`);
   let staleCached = null;
   try {
     const data = await fetchCurrentFuelPrices();
-    const price = data.prices[fuelType];
-    if (Number.isFinite(price)) {
-      priceInput.value = price.toFixed(1);
-      setFuelPriceStatus(`已抓取 ${data.source} ${fuelType} 牌價 ${price.toFixed(1)} 元/L${data.effectiveAt ? "，" + data.effectiveAt + " 實行" : ""}。`);
-      updateFuelLogCostFromDiscount();
+    if (Number.isFinite(data.prices[fuelType])) {
+      applyFuelPrice(data, fuelType);
       return;
     }
   } catch {
@@ -2592,16 +3293,97 @@ function updateFuelLogCostFromDiscount(options = {}) {
 function openMileageModal() {
   const currentMileage = getCurrentMileage();
   document.getElementById("currentMileageInput").value = currentMileage || "";
-  document.getElementById("currentMileageHint").textContent = currentMileage > 0
-    ? "目前紀錄最高里程是 " + currentMileage.toLocaleString("zh-TW") + " km。"
-    : "";
+  updateCurrentMileageHint();
   clearMileageMessage();
-  document.getElementById("mileageModal").style.display = "flex";
+  openDialog("mileageModal");
 }
 
 function closeMileageModal() {
-  document.getElementById("mileageModal").style.display = "none";
+  closeDialog("mileageModal");
   clearMileageMessage();
+}
+
+// 一箱油約可跑 900 km；距上次加油超過 1,500 km 多半是多打一位或漏登加油。
+const FUEL_GAP_WARNING_KM = 1500;
+const MILEAGE_JUMP_MIN_KM = 3000;
+
+function getPreviousFuelLog({ excludeIndex = -1, onOrBefore = "" } = {}) {
+  const logs = getFuelLogs().filter(log =>
+    log.sourceIndex !== excludeIndex && (!onOrBefore || log.date <= onOrBefore)
+  );
+  return logs.length ? logs[logs.length - 1] : null;
+}
+
+function getDefaultFuelNote(log) {
+  const note = String(log?.note || "");
+  const station = note.match(/全國加油站|全國|中油|台塑|台亞|山隆|福懋|統一精工|速邁樂/)?.[0];
+  if (!station) return "全國加油站自助";
+  const name = station === "全國" ? "全國加油站" : station;
+  return note.includes("自助") ? name + "自助" : name;
+}
+
+// 里程比目前最高值多出很多（超過 3,000 km，且超過依開車速度推估的 3 倍）時提醒確認。
+function getMileageJumpWarning(mileage, dateText = getTodayString(), { excludeIndex = -1 } = {}) {
+  const maxMileage = getMaxMileage(excludeIndex);
+  if (!Number.isFinite(mileage) || maxMileage <= 0 || mileage <= maxMileage) return "";
+  const jump = mileage - maxMileage;
+  const pace = getDrivingPace();
+  const date = parseDate(dateText) || now();
+  const expected = pace ? pace.kmPerDay * Math.max(1, diffDays(date, pace.latestDate)) : 0;
+  if (jump <= Math.max(MILEAGE_JUMP_MIN_KM, expected * 3)) return "";
+  return `比目前最高里程多 ${jump.toLocaleString("zh-TW")} km，請確認沒有多打一位`;
+}
+
+function getFuelGapWarning(mileage, previous) {
+  if (!previous || !Number.isFinite(mileage)) return "";
+  const gap = mileage - previous.mileage;
+  return gap > FUEL_GAP_WARNING_KM
+    ? `距上次加油 +${gap.toLocaleString("zh-TW")} km，請確認里程或是否漏登加油`
+    : "";
+}
+
+function getFuelLogMileageWarning(mileage, date) {
+  const previous = getPreviousFuelLog({ excludeIndex: fuelEditIndex, onOrBefore: date });
+  return getFuelGapWarning(mileage, previous) || getMileageJumpWarning(mileage, date, { excludeIndex: fuelEditIndex });
+}
+
+function updateFuelLogMileageHint() {
+  const el = document.getElementById("fuelLogMileageHint");
+  if (!el) return;
+  const mileage = parseInt(document.getElementById("fuelLogMileageInput").value, 10);
+  const date = document.getElementById("fuelLogDateInput").value;
+  const previous = getPreviousFuelLog({ excludeIndex: fuelEditIndex, onOrBefore: date });
+  const parts = [];
+  if (previous) {
+    parts.push(`上次加油 ${previous.mileage.toLocaleString("zh-TW")} km（${previous.date}）`);
+    if (Number.isFinite(mileage)) {
+      const gap = mileage - previous.mileage;
+      parts.push(gap >= 0
+        ? `本次 +${gap.toLocaleString("zh-TW")} km`
+        : `比上次少 ${Math.abs(gap).toLocaleString("zh-TW")} km`);
+    }
+  }
+  const warning = getFuelLogMileageWarning(mileage, date);
+  el.textContent = [parts.join("，"), warning].filter(Boolean).join("。");
+  el.classList.toggle("form-help-warn", Boolean(warning) || Boolean(previous && mileage < previous.mileage));
+}
+
+function updateCurrentMileageHint() {
+  const el = document.getElementById("currentMileageHint");
+  if (!el) return;
+  const currentMileage = getCurrentMileage();
+  const mileage = parseInt(document.getElementById("currentMileageInput").value, 10);
+  if (currentMileage <= 0) {
+    el.textContent = "";
+    return;
+  }
+  const parts = ["目前紀錄最高里程是 " + currentMileage.toLocaleString("zh-TW") + " km"];
+  if (Number.isFinite(mileage) && mileage > currentMileage) {
+    parts.push("本次 +" + (mileage - currentMileage).toLocaleString("zh-TW") + " km");
+  }
+  const warning = getMileageJumpWarning(mileage);
+  el.textContent = parts.join("，") + "。" + (warning ? warning + "。" : "");
+  el.classList.toggle("form-help-warn", Boolean(warning));
 }
 
 function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
@@ -2609,6 +3391,9 @@ function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
   const record = editing ? records[editIndex] : null;
   const parsed = editing ? parseFuelLog(record, editIndex) : null;
   const currentMileage = getCurrentMileage();
+  const lastFuel = editing ? null : getPreviousFuelLog();
+  const defaultFuelType = ["92", "95", "98", "其他"].includes(lastFuel?.fuelType) ? lastFuel.fuelType : DEFAULT_FUEL_TYPE;
+  const defaultDiscount = Number.isFinite(lastFuel?.discount) ? lastFuel.discount : DEFAULT_FUEL_DISCOUNT;
   fuelEditIndex = editing ? editIndex : -1;
   document.getElementById("fuelLogModalTitle").textContent = editing ? "編輯加油紀錄" : "新增加油紀錄";
   document.getElementById("fuelLogSaveBtn").textContent = editing ? "💾 儲存變更" : "💾 儲存加油";
@@ -2616,17 +3401,22 @@ function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
   document.getElementById("fuelLogMileageInput").value = editing ? (record.mileage || "") : (currentMileage || "");
   document.getElementById("fuelLogLitersInput").value = parsed ? parsed.liters.toFixed(2) : "";
   document.getElementById("fuelLogUnitPriceInput").value = Number.isFinite(parsed?.unitPrice) ? parsed.unitPrice.toFixed(1) : "";
-  document.getElementById("fuelLogDiscountInput").value = Number.isFinite(parsed?.discount) ? parsed.discount.toFixed(1) : String(DEFAULT_FUEL_DISCOUNT);
+  document.getElementById("fuelLogDiscountInput").value = Number.isFinite(parsed?.discount)
+    ? parsed.discount.toFixed(1)
+    : (editing ? String(DEFAULT_FUEL_DISCOUNT) : defaultDiscount.toFixed(1));
   document.getElementById("fuelLogCostInput").value = editing ? (record.cost || "") : "";
   document.getElementById("fuelLogNetPriceHint").textContent = "輸入加油量與油價後會自動試算，實際付款金額可直接修改。";
-  document.getElementById("fuelLogTypeInput").value = ["92", "95", "98", "其他"].includes(parsed?.fuelType) ? parsed.fuelType : DEFAULT_FUEL_TYPE;
+  document.getElementById("fuelLogTypeInput").value = ["92", "95", "98", "其他"].includes(parsed?.fuelType)
+    ? parsed.fuelType
+    : (editing ? DEFAULT_FUEL_TYPE : defaultFuelType);
   document.getElementById("fuelLogFullTankInput").value = parsed?.fullTank === false ? "no" : "yes";
-  document.getElementById("fuelLogNoteInput").value = editing ? (record.note || "") : "全國加油站自助";
-  setFuelPriceStatus(editing ? "已帶入原加油資料；修改後會重新試算金額。" : "預設 98，會嘗試抓取全國加油站今日牌價。");
+  document.getElementById("fuelLogNoteInput").value = editing ? (record.note || "") : getDefaultFuelNote(lastFuel);
+  setFuelPriceStatus(editing ? "已帶入原加油資料；修改後會重新試算金額。" : `預設 ${defaultFuelType}，會嘗試抓取全國加油站今日牌價。`);
   clearFuelLogMessage();
   const saveBtn = document.querySelector("#fuelLogForm button[type='submit']");
   if (saveBtn) delete saveBtn.dataset.confirmedMileage;
-  document.getElementById("fuelLogModal").style.display = "flex";
+  openDialog("fuelLogModal");
+  updateFuelLogMileageHint();
   updateFuelLogCostFromDiscount({ preserveCostInput: editing });
   if (!editing && !skipPriceLoad) loadFuelPriceForSelectedType({ force: true });
 }
@@ -2643,10 +3433,12 @@ function setActiveView(view) {
     button.classList.toggle("is-active", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
+  buildCharts();
 }
 
 function setRecordsSubtab(tab) {
   activeRecordsSubtab = ["all", "fuel", "mileage"].includes(tab) ? tab : "all";
+  resetRecordsPaging();
   const allPanel = document.getElementById("allRecordsPanel");
   const fuelPanel = document.getElementById("fuelAnalysisPanel");
   const categoryFilters = document.getElementById("filterPills");
@@ -2669,25 +3461,23 @@ function setRecordsSubtab(tab) {
     button.setAttribute("aria-pressed", String(selected));
   });
   renderRecords();
+  buildCharts();
 }
 
 function openQuickEntryMenu(invoker = null) {
   const modal = document.getElementById("quickEntryModal");
-  quickEntryInvoker = invoker?.focus ? invoker : document.activeElement || null;
-  modal.style.display = "flex";
+  openDialog("quickEntryModal", { invoker });
   const focusable = getModalFocusableElements(modal);
   const primaryAction = focusable.find(element => element.dataset?.quickEntry === "fuel");
   (primaryAction || focusable[0])?.focus();
 }
 
 function closeQuickEntryMenu({ restoreFocus = true } = {}) {
-  document.getElementById("quickEntryModal").style.display = "none";
-  if (restoreFocus && quickEntryInvoker?.focus) quickEntryInvoker.focus();
-  quickEntryInvoker = null;
+  closeDialog("quickEntryModal", { restoreFocus });
 }
 
 function runQuickEntry(action) {
-  closeQuickEntryMenu({ restoreFocus: false });
+  closeQuickEntryMenu();
   if (action === "fuel") {
     setActiveView("records");
     openFuelLogModal();
@@ -2704,7 +3494,7 @@ function runQuickEntry(action) {
 }
 
 function closeFuelLogModal() {
-  document.getElementById("fuelLogModal").style.display = "none";
+  closeDialog("fuelLogModal");
   fuelEditIndex = -1;
   clearFuelLogMessage();
 }
@@ -2715,11 +3505,11 @@ function openFuelModal() {
   document.getElementById("fuelCostInput").value = "";
   document.getElementById("fuelNoteInput").value = "";
   clearFuelMessage();
-  document.getElementById("fuelModal").style.display = "flex";
+  openDialog("fuelModal");
 }
 
 function closeFuelModal() {
-  document.getElementById("fuelModal").style.display = "none";
+  closeDialog("fuelModal");
   clearFuelMessage();
 }
 
@@ -2751,12 +3541,13 @@ function openPhotoModal() {
   document.getElementById("photoApplyBtn").disabled = true;
   clearPhotoMessage();
   setPhotoMode("fuel");
-  document.getElementById("photoModal").style.display = "flex";
+  openDialog("photoModal");
 }
 
 function closePhotoModal() {
-  document.getElementById("photoModal").style.display = "none";
+  closeDialog("photoModal");
   clearPhotoMessage();
+  releaseOcrWorker();
 }
 
 function renderPhotoResult(parsed) {
@@ -2785,11 +3576,57 @@ function renderPhotoResult(parsed) {
   document.getElementById("photoApplyBtn").disabled = false;
 }
 
-async function recognizePhotoFile(file) {
-  if (!window.Tesseract) {
-    throw new Error("OCR library is not loaded");
+// OCR worker 在照片視窗開著時重複使用（連拍多張不必重新載入模型），關閉視窗即釋放記憶體。
+let ocrWorkerPromise = null;
+let ocrProgressHandler = null;
+
+function getOcrWorker() {
+  if (!ocrWorkerPromise) {
+    const logger = info => ocrProgressHandler?.(info);
+    ocrWorkerPromise = loadScriptOnce(TESSERACT_JS_URL, TESSERACT_JS_SRI)
+      .then(() => Tesseract.createWorker("chi_tra+eng", 1, { logger }))
+      .catch(error => {
+        console.warn("繁中 OCR 模型載入失敗，改用英文數字辨識", error);
+        return loadScriptOnce(TESSERACT_JS_URL, TESSERACT_JS_SRI)
+          .then(() => Tesseract.createWorker("eng", 1, { logger }));
+      })
+      .catch(error => {
+        ocrWorkerPromise = null;
+        throw error;
+      });
   }
-  const logger = info => {
+  return ocrWorkerPromise;
+}
+
+function releaseOcrWorker() {
+  const pending = ocrWorkerPromise;
+  ocrWorkerPromise = null;
+  pending?.then(worker => worker.terminate()).catch(() => {});
+}
+
+// 手機照片常超過 4,000 px；縮到長邊 2,000 px 辨識快很多，收據文字仍清楚。
+async function prepareImageForOcr(file) {
+  if (typeof createImageBitmap !== "function") return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, OCR_MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1) {
+      bitmap.close?.();
+      return file;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return canvas;
+  } catch (error) {
+    return file;
+  }
+}
+
+async function recognizePhotoFile(file) {
+  ocrProgressHandler = info => {
     if (info.status === "recognizing text") {
       const pct = Math.round((info.progress || 0) * 100);
       showPhotoMessage("info", "正在辨識照片文字 " + pct + "%");
@@ -2798,10 +3635,10 @@ async function recognizePhotoFile(file) {
     }
   };
   try {
-    return await Tesseract.recognize(file, "chi_tra+eng", { logger });
-  } catch (e) {
-    console.warn("繁中 OCR 失敗，改用英文數字辨識", e);
-    return await Tesseract.recognize(file, "eng", { logger });
+    const [worker, image] = await Promise.all([getOcrWorker(), prepareImageForOcr(file)]);
+    return await worker.recognize(image);
+  } finally {
+    ocrProgressHandler = null;
   }
 }
 
@@ -2861,6 +3698,7 @@ function applyPhotoParsedToForm() {
     updateFuelLogCostFromDiscount();
     if (parsed.cost) document.getElementById("fuelLogCostInput").value = parsed.cost;
     showFuelLogMessage("info", "已從照片填入加油資料；請確認里程、公升與金額後儲存。");
+    setDialogFormDirty("fuelLogModal", true);
     return;
   }
 
@@ -2873,6 +3711,7 @@ function applyPhotoParsedToForm() {
   document.getElementById("formNote").value = parsed.note || "照片辨識，請確認欄位";
   updateMileageHint(-1);
   showFormMessage("info", "已從照片填入紀錄；請確認日期、里程、費用與內容後儲存。");
+  setDialogFormDirty("modal", true);
 }
 
 function openAiModal() {
@@ -2880,18 +3719,19 @@ function openAiModal() {
   renderAiResultNote("");
   clearAiMessage();
   document.getElementById("aiSubmitBtn").disabled = false;
-  document.getElementById("aiModal").style.display = "flex";
+  openDialog("aiModal");
   setTimeout(() => document.getElementById("aiRecordText").focus(), 50);
 }
 
 function closeAiModal() {
-  document.getElementById("aiModal").style.display = "none";
+  closeDialog("aiModal");
   renderAiResultNote("");
   clearAiMessage();
 }
 
+// 只送最近的紀錄給 AI 當參考：夠判斷里程與用語，又不會隨紀錄變多而變慢、變貴。
 function getAiSafeRecords() {
-  return records.map(r => ({
+  return getRecordsNewestFirst().slice(0, AI_CONTEXT_RECORD_LIMIT).map(r => ({
     date: r.date || "",
     mileage: Number.isFinite(Number(r.mileage)) ? Number(r.mileage) : null,
     category: r.category || "",
@@ -3046,7 +3886,7 @@ function getQuickFuelNote(text) {
 }
 
 function hasQuickServiceSignal(text) {
-  return /保養|維修|更換|換|輪胎|電瓶|煞車|機油|變速箱|保險|驗車|檢驗|牌照稅|燃料稅|洗車|美容|鍍膜|清潔|改裝|升級|汽油精/.test(text);
+  return /保養|維修|更換|換|輪胎|電瓶|煞車|機油|變速箱|保險|驗車|檢驗|牌照稅|燃料稅|洗車|美容|鍍膜|清潔|改裝|升級|汽油精|烤漆|鈑金|板金|刮傷/.test(text);
 }
 
 function buildQuickServiceDetail(text, cost, mileage) {
@@ -3192,6 +4032,7 @@ async function applyAiFuelDraft(result, sourceText) {
     : `${result.localParser ? "本機規則" : "AI"} 已填入加油草稿；目前缺公升數，請確認油價或手動輸入公升後儲存。`;
   const reviewSuffix = getAiReviewSuffix(result);
   showFuelLogMessage(liters ? "info" : "error", message + reviewSuffix);
+  setDialogFormDirty("fuelLogModal", true);
 }
 
 function applyAiServiceDraft(result, sourceText) {
@@ -3207,6 +4048,7 @@ function applyAiServiceDraft(result, sourceText) {
   document.getElementById("formNote").value = String(draft.note || "").trim();
   updateMileageHint(-1);
   showFormMessage("info", `${result.localParser ? "本機規則" : "AI"} 已填入紀錄草稿；請確認日期、里程、類別、費用與內容後儲存。` + getAiReviewSuffix(result));
+  setDialogFormDirty("modal", true);
 }
 
 async function applyAiDraftToForm(result, sourceText) {
@@ -3274,6 +4116,13 @@ function handleMileageSubmit(e) {
     showMileageMessage("error", "目前里程不能低於既有最高里程 " + currentMileage.toLocaleString("zh-TW") + " km。");
     return;
   }
+  const saveBtn = e.submitter || document.querySelector("#mileageForm button[type='submit']");
+  const jumpWarning = getMileageJumpWarning(mileage);
+  if (jumpWarning && saveBtn && !saveBtn.dataset.confirmedMileage) {
+    showMileageMessage("info", jumpWarning + "；確認無誤請再按一次更新。");
+    saveBtn.dataset.confirmedMileage = "true";
+    return;
+  }
 
   const today = getTodayString();
   const existingTodayIndex = records.findIndex(r =>
@@ -3290,15 +4139,12 @@ function handleMileageSubmit(e) {
     note: "用於儀表板里程計算"
   };
 
-  if (existingTodayIndex >= 0) {
-    records[existingTodayIndex] = rec;
-  } else {
-    records.push(rec);
-  }
-
-  saveRecords(records);
-  closeMileageModal();
-  refresh();
+  commitRecordChange(
+    existingTodayIndex >= 0
+      ? { type: "edit", index: existingTodayIndex, before: records[existingTodayIndex], after: rec }
+      : { type: "add", after: rec },
+    { message: "已更新目前里程", close: closeMileageModal }
+  );
 }
 
 function handleFuelLogSubmit(e) {
@@ -3344,6 +4190,12 @@ function handleFuelLogSubmit(e) {
     saveBtn.dataset.confirmedMileage = "true";
     return;
   }
+  const mileageWarning = getFuelLogMileageWarning(mileage, date);
+  if (mileageWarning && !saveBtn.dataset.confirmedMileage) {
+    showFuelLogMessage("info", mileageWarning + "；確認無誤請再按一次儲存。");
+    saveBtn.dataset.confirmedMileage = "true";
+    return;
+  }
 
   const record = {
     date,
@@ -3369,11 +4221,13 @@ function handleFuelLogSubmit(e) {
   requestRecordSave(record, {
     editIndex: fuelEditIndex,
     commit: () => {
-      if (fuelEditIndex >= 0) records[fuelEditIndex] = record;
-      else records.push(record);
-      saveRecords(records);
-      closeFuelLogModal();
-      refresh();
+      const editing = fuelEditIndex >= 0;
+      commitRecordChange(
+        editing
+          ? { type: "edit", index: fuelEditIndex, before: records[fuelEditIndex], after: record }
+          : { type: "add", after: record },
+        { message: editing ? "已更新加油紀錄" : "已新增加油紀錄", close: closeFuelLogModal }
+      );
     }
   });
 }
@@ -3398,18 +4252,17 @@ function handleFuelSubmit(e) {
     return;
   }
 
-  records.push({
-    date: getTodayString(),
-    mileage,
-    category: "其他",
-    detail: "汽油精",
-    cost,
-    note: note || "定期添加維護"
-  });
-
-  saveRecords(records);
-  closeFuelModal();
-  refresh();
+  commitRecordChange({
+    type: "add",
+    after: {
+      date: getTodayString(),
+      mileage,
+      category: "其他",
+      detail: "汽油精",
+      cost,
+      note: note || "定期添加維護"
+    }
+  }, { message: "已記錄汽油精", close: closeFuelModal });
 }
 
 function handleFormSubmit(e) {
@@ -3455,15 +4308,22 @@ function handleFormSubmit(e) {
     saveBtn.dataset.confirmedMileage = "true";
     return;
   }
+  const jumpWarning = rec.mileage !== null && mileageChanged
+    ? getMileageJumpWarning(rec.mileage, rec.date, { excludeIndex: idx })
+    : "";
+  if (jumpWarning && !saveBtn.dataset.confirmedMileage) {
+    showFormMessage("info", jumpWarning + "；確認無誤請再按一次儲存。");
+    saveBtn.dataset.confirmedMileage = "true";
+    return;
+  }
 
   requestRecordSave(rec, {
     editIndex: idx,
     commit: () => {
-      if (idx === -1) records.push(rec);
-      else records[idx] = rec;
-      saveRecords(records);
-      closeModal();
-      refresh();
+      commitRecordChange(
+        idx === -1 ? { type: "add", after: rec } : { type: "edit", index: idx, before: records[idx], after: rec },
+        { message: idx === -1 ? `已新增${rec.category}紀錄` : "已更新紀錄", close: closeModal }
+      );
     }
   });
 }
@@ -3473,32 +4333,63 @@ function handleFormSubmit(e) {
 // ============================================================
 function openDeleteModal(idx) {
   deleteTargetIndex = idx;
-  document.getElementById("deleteModal").style.display = "flex";
+  openDialog("deleteModal", { focusId: "deleteCancelBtn" });
 }
 function closeDeleteModal() {
-  document.getElementById("deleteModal").style.display = "none";
+  closeDialog("deleteModal");
   deleteTargetIndex = -1;
 }
 function handleDeleteConfirm() {
   if (deleteTargetIndex < 0) return;
   const index = deleteTargetIndex;
-  const [record] = records.splice(index, 1);
+  const record = records[index];
   if (!record) return;
-  deletedRecordSnapshot = { record, index };
-  saveRecords(records, { announce: false });
-  closeDeleteModal();
-  refresh();
-  showToast("已刪除紀錄", { label: "復原", onClick: restoreDeletedRecord });
+  commitRecordChange({ type: "delete", index, before: record }, { message: "已刪除紀錄", close: closeDeleteModal });
 }
 
-function restoreDeletedRecord() {
-  if (!deletedRecordSnapshot) return;
-  const { record, index } = deletedRecordSnapshot;
-  records.splice(Math.min(index, records.length), 0, record);
-  deletedRecordSnapshot = null;
+// ============================================================
+// 新增、編輯、刪除都可以「復原」
+// ============================================================
+function findRecordIndexFor(target) {
+  if (!target) return -1;
+  const direct = records.indexOf(target);
+  if (direct >= 0) return direct;
+  const key = recordKey(target);
+  return records.findIndex(record => recordKey(record) === key);
+}
+
+// change: { type: "add" | "edit" | "delete", index, before, after }
+function commitRecordChange(change, { message, close } = {}) {
+  if (change.type === "add") records.push(change.after);
+  else if (change.type === "edit") records[change.index] = change.after;
+  else if (change.type === "delete") records.splice(change.index, 1);
+  lastUndo = change;
+  saveRecords(records, { announce: false });
+  if (close) close();
+  refresh();
+  showToast(message, { label: "復原", onClick: undoLastChange });
+}
+
+// 以內容找回紀錄：期間若與雲端合併過，索引可能已改變。
+function undoLastChange() {
+  const change = lastUndo;
+  lastUndo = null;
+  if (!change) return false;
+  if (change.type === "delete") {
+    records.splice(Math.min(change.index, records.length), 0, change.before);
+  } else {
+    const index = findRecordIndexFor(change.after);
+    if (index < 0) {
+      showToast("無法復原：這筆紀錄已被其他變更取代。");
+      return false;
+    }
+    if (change.type === "add") records.splice(index, 1);
+    else records[index] = change.before;
+  }
   saveRecords(records, { announce: false });
   refresh();
-  showToast("已復原紀錄");
+  showToast("已復原");
+  return true;
 }
 
 // ============================================================
@@ -3533,6 +4424,8 @@ function renderFuelLogSection() {
   const tbody = document.getElementById("fuelLogTableBody");
   const summary = document.getElementById("fuelLogSummary");
   const empty = document.getElementById("fuelLogEmpty");
+  const trend = document.getElementById("fuelTrend");
+  const trendSummary = document.getElementById("fuelTrendSummary");
   if (!tbody || !summary || !empty) return;
 
   const fuelStats = getFuelStats();
@@ -3545,6 +4438,13 @@ function renderFuelLogSection() {
       .filter(issue => issue.type === "fuel-outlier")
       .map(issue => issue.key)
   );
+  if (trend) trend.hidden = fuelStats.segments.length < 2;
+  if (trendSummary) {
+    trendSummary.textContent = [
+      fuelStats.averageKmPerLiter ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L` : "",
+      fuelStats.averageCostPerKm ? `每公里 NT$ ${fuelStats.averageCostPerKm.toFixed(2)}` : ""
+    ].filter(Boolean).join(" · ");
+  }
 
   if (!logs.length) {
     tbody.innerHTML = "";
@@ -3559,8 +4459,9 @@ function renderFuelLogSection() {
     `累計 ${formatCost(fuelStats.totalCost)}`,
     fuelStats.averageKmPerLiter
       ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L`
-      : "油耗待第二次加滿後計算"
-  ].join(" · ");
+      : "油耗待第二次加滿後計算",
+    fuelStats.averageCostPerKm ? `每公里 NT$ ${fuelStats.averageCostPerKm.toFixed(2)}` : ""
+  ].filter(Boolean).join(" · ");
 
   tbody.innerHTML = logs.map(log => {
     const segment = segmentMap.get(`${log.date}|${log.mileage}`);
@@ -3568,6 +4469,7 @@ function renderFuelLogSection() {
     const kmPerLiter = segment
       ? `${segment.kmPerLiter.toFixed(1)} km/L`
       : (log.fullTank ? "基準" : "—");
+    const costPerKm = segment?.costPerKm != null ? `NT$ ${segment.costPerKm.toFixed(2)}` : "—";
     return `
       <tr>
         <td data-label="日期">${escapeHtml(log.date)}</td>
@@ -3579,6 +4481,7 @@ function renderFuelLogSection() {
         <td data-label="實付/L">${formatNumberOrDash(log.netPrice, 1)}</td>
         <td data-label="油費">${formatCost(log.cost)}</td>
         <td data-label="油耗"><span>${kmPerLiter}</span>${needsReview ? '<span class="data-quality-flag">待確認</span>' : ""}</td>
+        <td data-label="每公里">${costPerKm}</td>
         <td data-label="備註">${escapeHtml(log.note || "")}</td>
       </tr>
     `;
@@ -3589,17 +4492,22 @@ function renderFuelLogSection() {
 // 全量更新
 // ============================================================
 function refresh() {
-  updateStats();
-  renderOwnerDashboard();
-  renderOverviewRecentRecords();
-  renderOwnershipCostPanel();
-  renderDataQualityPanel();
-  renderConsumableTrackers();
-  renderFuelLogSection();
-  populateYearFilter();
-  updateFilterPills();
-  buildCharts();
-  renderRecords();
+  renderCache = new Map();
+  try {
+    updateStats();
+    renderOwnerDashboard();
+    renderOverviewRecentRecords();
+    renderOwnershipCostPanel();
+    renderDataQualityPanel();
+    renderConsumableTrackers();
+    renderFuelLogSection();
+    populateYearFilter();
+    updateFilterPills();
+    buildCharts();
+    renderRecords();
+  } finally {
+    renderCache = null;
+  }
 }
 
 // ============================================================
@@ -3608,32 +4516,58 @@ function refresh() {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("appVersion").textContent = APP_VERSION;
 
-  // 今日初始化 (改為從雲端載入)
+  // 先顯示本機資料，再於背景與雲端同步
   initData();
+
+  // 離線也能開啟 App（加到主畫面後尤其需要）
+  if (typeof navigator !== "undefined" && "serviceWorker" in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register("sw.js").catch(error => console.warn("離線快取註冊失敗", error));
+  }
+
+  // 對話框：點背景或 Esc 關閉（表單有未儲存內容時不關閉），Tab 在視窗內循環
+  Object.keys(DIALOG_CLOSERS).forEach(id => {
+    const overlay = document.getElementById(id);
+    if (!overlay) return;
+    overlay.addEventListener("click", event => {
+      if (event.target === overlay) requestDialogDismiss(id);
+    });
+    const form = getDialogForm(id);
+    if (!form) return;
+    // 只有輸入事件才算未儲存；程式自動帶入的值不會觸發 input 事件。
+    const markDirty = () => {
+      form.dataset.dirty = "true";
+    };
+    form.addEventListener("input", markDirty);
+    form.addEventListener("change", markDirty);
+  });
+  document.addEventListener("keydown", event => {
+    const id = getTopDialogId();
+    if (!id) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      requestDialogDismiss(id);
+    } else {
+      trapModalFocus(event, document.getElementById(id));
+    }
+  });
+
+  // 同步：點狀態立即重試；連線恢復或回到 App 時自動同步
+  document.getElementById("syncStatus").addEventListener("click", () => requestSync({ reconcile: true }));
+  window.addEventListener("online", () => requestSync({ reconcile: true }));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    const stale = Date.now() - lastCloudCheckAt > SYNC_RECHECK_INTERVAL_MS;
+    if (stale || syncMeta?.dirty || syncMeta?.lastAttempt) {
+      requestSync({ reconcile: stale || Boolean(syncMeta?.lastAttempt) });
+    }
+  });
 
   // 快速新增與內容切換
   document.getElementById("calendarReminderCloseBtn").addEventListener("click", closeCalendarReminder);
   document.getElementById("calendarReminderCancelBtn").addEventListener("click", closeCalendarReminder);
   document.getElementById("calendarReminderConfirmBtn").addEventListener("click", downloadCalendarReminder);
-  document.getElementById("calendarReminderModal").addEventListener("click", event => {
-    if (event.target === document.getElementById("calendarReminderModal")) closeCalendarReminder();
-  });
-  document.addEventListener("keydown", event => {
-    const calendarModal = document.getElementById("calendarReminderModal");
-    const quickEntryModal = document.getElementById("quickEntryModal");
-    if (calendarModal.style.display === "flex") {
-      if (event.key === "Escape") closeCalendarReminder();
-      else trapModalFocus(event, calendarModal);
-    } else if (quickEntryModal.style.display === "flex") {
-      if (event.key === "Escape") closeQuickEntryMenu();
-      else trapModalFocus(event, quickEntryModal);
-    }
-  });
   document.getElementById("btnQuickEntry").addEventListener("click", openQuickEntryMenu);
   document.getElementById("quickEntryModalClose").addEventListener("click", closeQuickEntryMenu);
-  document.getElementById("quickEntryModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("quickEntryModal")) closeQuickEntryMenu();
-  });
   document.querySelectorAll(".quick-entry-btn").forEach(button => {
     button.addEventListener("click", () => runQuickEntry(button.dataset.quickEntry));
   });
@@ -3668,25 +4602,14 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("backupRestoreCancelBtn").addEventListener("click", closeBackupRestoreModal);
   document.getElementById("backupRestoreConfirmBtn").addEventListener("click", confirmBackupRestore);
-  document.getElementById("backupRestoreModal").addEventListener("click", event => {
-    if (event.target === document.getElementById("backupRestoreModal")) closeBackupRestoreModal();
-  });
+  document.getElementById("btnLegacyStashDownload").addEventListener("click", downloadLegacyLocalStash);
 
   document.getElementById("duplicateCancelBtn").addEventListener("click", closeDuplicateModal);
   document.getElementById("duplicateConfirmBtn").addEventListener("click", confirmDuplicateSave);
-  document.getElementById("duplicateModal").addEventListener("click", event => {
-    if (event.target === document.getElementById("duplicateModal")) closeDuplicateModal();
-  });
-
-  // 同步狀態重試
-  document.getElementById("syncStatus").addEventListener("click", () => syncToCloud(records));
 
   // Modal 關閉
   document.getElementById("modalClose").addEventListener("click", closeModal);
   document.getElementById("btnCancel").addEventListener("click", closeModal);
-  document.getElementById("modal").addEventListener("click", e => {
-    if (e.target === document.getElementById("modal")) closeModal();
-  });
 
   // 表單提交
   document.getElementById("recordForm").addEventListener("submit", handleFormSubmit);
@@ -3694,25 +4617,22 @@ document.addEventListener("DOMContentLoaded", () => {
   ["formDate", "formMileage", "formCategory", "formCost", "formDetail", "formNote"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
       clearFormMessage();
-      if (id === "formMileage") updateMileageHint();
+      if (id === "formMileage" || id === "formDate") updateMileageHint();
     });
   });
 
   // 目前里程更新
   document.getElementById("mileageModalClose").addEventListener("click", closeMileageModal);
   document.getElementById("mileageCancelBtn").addEventListener("click", closeMileageModal);
-  document.getElementById("mileageModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("mileageModal")) closeMileageModal();
-  });
   document.getElementById("mileageForm").addEventListener("submit", handleMileageSubmit);
-  document.getElementById("currentMileageInput").addEventListener("input", clearMileageMessage);
+  document.getElementById("currentMileageInput").addEventListener("input", () => {
+    clearMileageMessage();
+    updateCurrentMileageHint();
+  });
 
   // 照片辨識
   document.getElementById("photoModalClose").addEventListener("click", closePhotoModal);
   document.getElementById("photoCancelBtn").addEventListener("click", closePhotoModal);
-  document.getElementById("photoModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("photoModal")) closePhotoModal();
-  });
   document.querySelectorAll(".photo-mode-btn").forEach(btn => {
     btn.addEventListener("click", () => setPhotoMode(btn.dataset.photoMode));
   });
@@ -3725,9 +4645,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // AI 紀錄助手
   document.getElementById("aiModalClose").addEventListener("click", closeAiModal);
   document.getElementById("aiCancelBtn").addEventListener("click", closeAiModal);
-  document.getElementById("aiModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("aiModal")) closeAiModal();
-  });
   document.getElementById("aiRecordForm").addEventListener("submit", handleAiRecordSubmit);
   document.getElementById("aiRecordText").addEventListener("input", () => {
     clearAiMessage();
@@ -3738,11 +4655,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // 加油紀錄
   document.getElementById("fuelLogModalClose").addEventListener("click", closeFuelLogModal);
   document.getElementById("fuelLogCancelBtn").addEventListener("click", closeFuelLogModal);
-  document.getElementById("fuelLogModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("fuelLogModal")) closeFuelLogModal();
-  });
   document.getElementById("fuelLogForm").addEventListener("submit", handleFuelLogSubmit);
-  document.getElementById("btnFetchFuelPrice").addEventListener("click", () => loadFuelPriceForSelectedType({ force: true }));
+  document.getElementById("btnFetchFuelPrice").addEventListener("click", () => loadFuelPriceForSelectedType({ force: true, preferCache: false }));
   ["fuelLogLitersInput", "fuelLogUnitPriceInput", "fuelLogDiscountInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
       clearFuelLogMessage();
@@ -3765,13 +4679,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById(id).addEventListener("input", clearFuelLogMessage);
     document.getElementById(id).addEventListener("change", clearFuelLogMessage);
   });
+  ["fuelLogDateInput", "fuelLogMileageInput"].forEach(id => {
+    document.getElementById(id).addEventListener("input", updateFuelLogMileageHint);
+  });
 
   // 汽油精添加
   document.getElementById("fuelModalClose").addEventListener("click", closeFuelModal);
   document.getElementById("fuelCancelBtn").addEventListener("click", closeFuelModal);
-  document.getElementById("fuelModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("fuelModal")) closeFuelModal();
-  });
   document.getElementById("fuelForm").addEventListener("submit", handleFuelSubmit);
   ["fuelMileageInput", "fuelCostInput", "fuelNoteInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", clearFuelMessage);
@@ -3780,8 +4694,27 @@ document.addEventListener("DOMContentLoaded", () => {
   // 刪除 Modal
   document.getElementById("deleteCancelBtn").addEventListener("click", closeDeleteModal);
   document.getElementById("deleteConfirmBtn").addEventListener("click", handleDeleteConfirm);
-  document.getElementById("deleteModal").addEventListener("click", e => {
-    if (e.target === document.getElementById("deleteModal")) closeDeleteModal();
+
+  // 紀錄列表：編輯、刪除、顯示更多
+  document.getElementById("recordsContainer").addEventListener("click", event => {
+    if (event.target.closest("[data-records-more]")) {
+      recordsVisibleLimit += RECORDS_PAGE_SIZE;
+      renderRecords();
+      return;
+    }
+    const editButton = event.target.closest(".edit-btn");
+    if (editButton) {
+      openEditModal(Number(editButton.dataset.idx));
+      return;
+    }
+    const deleteButton = event.target.closest(".delete-btn");
+    if (deleteButton) openDeleteModal(Number(deleteButton.dataset.idx));
+  });
+
+  // 資料檢查：直接開啟有問題的那筆紀錄
+  document.getElementById("dataQualityPanel").addEventListener("click", event => {
+    const button = event.target.closest("[data-quality-record]");
+    if (button) openEditModal(Number(button.dataset.qualityRecord));
   });
 
   // 類別篩選 Pills
@@ -3791,12 +4724,14 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".pill").forEach(p => p.classList.remove("pill-active"));
     btn.classList.add("pill-active");
     currentFilter = btn.dataset.cat;
+    resetRecordsPaging();
     renderRecords();
   });
 
   // 年份篩選
   document.getElementById("yearFilter").addEventListener("change", e => {
     currentYear = e.target.value;
+    resetRecordsPaging();
     renderRecords();
   });
 
@@ -3806,6 +4741,7 @@ document.addEventListener("DOMContentLoaded", () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
       currentSearch = e.target.value.trim();
+      resetRecordsPaging();
       renderRecords();
     }, 200);
   });

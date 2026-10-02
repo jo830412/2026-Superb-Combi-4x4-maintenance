@@ -31,6 +31,8 @@
 
   --shadow: 0 2px 12px rgba(0,0,0,0.4);
   --shadow-md: 0 4px 24px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.55);
+  --bg-elevated: #1c2333;
 
   --transition: 0.18s ease;
 
@@ -48,6 +50,8 @@ body {
   min-height: 100dvh;
   line-height: 1.5;
   padding-bottom: 60px;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
   overflow-x: hidden;
 }
 
@@ -65,7 +69,7 @@ body {
 .header-inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 14px 24px;
+  padding: calc(14px + env(safe-area-inset-top)) 24px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -224,16 +228,11 @@ body {
   min-height: 42px;
 }
 .app-tabs {
-  position: sticky;
-  top: 72px;
-  z-index: 90;
   display: flex;
   gap: 8px;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 12px 24px;
-  background: var(--bg-base);
-  border-bottom: 1px solid var(--border);
+  padding: 0 24px 12px;
 }
 .app-tab {
   min-height: 40px;
@@ -635,6 +634,9 @@ body {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.data-quality-open {
+  margin-top: 8px;
+}
 .data-quality-empty {
   color: var(--text-secondary);
   font-size: 0.84rem;
@@ -708,6 +710,30 @@ body {
   color: var(--text-secondary);
   font-size: 0.78rem;
   text-align: right;
+}
+.fuel-trend {
+  margin: 4px 0 18px;
+}
+.fuel-trend-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.fuel-trend-title {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.fuel-trend-summary {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-align: right;
+}
+.fuel-trend-canvas {
+  position: relative;
+  height: 220px;
 }
 .fuel-log-table-wrap {
   overflow-x: auto;
@@ -972,6 +998,12 @@ body {
   color: var(--text-secondary);
 }
 .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+.records-more {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 4px;
+}
 
 /* ============================================================
    Modal
@@ -1080,6 +1112,7 @@ body {
   color: var(--text-muted);
   font-size: 0.76rem;
 }
+.form-help-warn { color: var(--orange); }
 .form-message {
   display: none;
   grid-column: 1 / -1;
@@ -1234,9 +1267,29 @@ body {
 }
 .dashboard-next-service strong {
   margin: 7px 0;
-  color: var(--orange);
+  color: var(--green);
   font-size: clamp(1.35rem, 3vw, 2rem);
 }
+.dashboard-next-service[data-status="soon"] strong { color: var(--orange); }
+.dashboard-next-service[data-status="due"] strong { color: var(--red); }
+.maintenance-progress {
+  width: 100%;
+  height: 8px;
+  margin: 0 0 9px;
+  border-radius: 999px;
+  background: rgba(139, 148, 158, 0.22);
+  overflow: hidden;
+}
+.maintenance-progress > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width var(--transition);
+}
+.maintenance-progress-soon > span { background: var(--orange); }
+.maintenance-progress-due > span { background: var(--red); }
 .dashboard-next-service small,
 .dashboard-metric-card small {
   color: var(--text-muted);
@@ -1525,9 +1578,8 @@ body {
     flex-shrink: 1;
   }
   .app-tabs {
-    top: 112px;
     overflow-x: auto;
-    padding: 10px 16px;
+    padding: 0 16px 10px;
   }
   .app-tab {
     min-height: 44px;

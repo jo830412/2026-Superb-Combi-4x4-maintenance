@@ -2,102 +2,21 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
+const { createElement, loadApp, fuelRecord, deferred } = require("./helpers/app-harness");
 
-function createElement() {
+function syncedMeta(records, fingerprint = "sheet-v2") {
   return {
-    value: "",
-    textContent: "",
-    innerHTML: "",
-    className: "",
-    style: { display: "none" },
-    dataset: {},
-    disabled: false,
-    checked: false,
-    hidden: false,
-    options: [],
-    classList: { add() {}, remove() {}, toggle() {} },
-    appendChild(child) { this.options.push(child); return child; },
-    addEventListener() {},
-    click() {},
-    getContext() { return {}; },
-    querySelectorAll() { return []; },
-    removeAttribute() {},
-    setAttribute() {},
-    getAttribute() { return null; },
-    focus() {},
-    reset() {},
-    checkValidity() { return true; },
-    reportValidity() {}
+    version: 1,
+    baseFingerprint: fingerprint,
+    baseRecords: records.map(record => ({ ...record })),
+    dirty: false,
+    pendingRestore: false,
+    lastAttempt: null
   };
 }
 
-function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
-  const script = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
-  const elements = new Map();
-  const getElement = id => {
-    if (!elements.has(id)) elements.set(id, createElement());
-    return elements.get(id);
-  };
-  const localStore = new Map();
-  const context = {
-    AbortController,
-    Blob,
-    Date,
-    JSON,
-    Map,
-    Math,
-    Number,
-    RegExp,
-    String,
-    TextEncoder,
-    URL: urlApi || { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
-    console,
-    document: {
-      activeElement: null,
-      addEventListener() {},
-      createElement(tag) { return createElementImpl ? createElementImpl(tag) : createElement(); },
-      getElementById: getElement,
-      querySelector() { return createElement(); },
-      querySelectorAll() { return []; }
-    },
-    Chart: class { destroy() {} },
-    fetch: fetchImpl || (async () => ({ ok: true, json: async () => ({ status: "success" }) })),
-    localStorage: {
-      getItem(key) { return localStore.get(key) || null; },
-      setItem(key, value) { localStore.set(key, value); }
-    },
-    setTimeout,
-    clearTimeout,
-    window: {}
-  };
-  vm.createContext(context);
-  vm.runInContext(`${script}\n;const __downloadLabels = []; backupDownloadSpy = label => __downloadLabels.push(label); globalThis.__testApi = { openEditModal, openFuelLogModal, handleFuelLogSubmit, handleFormSubmit, runOwnerAction, handleDeleteConfirm, restoreDeletedRecord, buildBackupEnvelope, validateBackupEnvelope, getBackupDateRange, findLikelyDuplicates, requestRecordSave, confirmDuplicateSave, closeDuplicateModal, downloadJsonBackup, exportJsonBackup: typeof exportJsonBackup === "function" ? exportJsonBackup : null, stageBackupRestore, confirmBackupRestore, closeBackupRestoreModal, saveRecords, updateStats: typeof updateStats === "function" ? updateStats : null, buildOwnerActions: typeof buildOwnerActions === "function" ? buildOwnerActions : null, renderOwnerDashboard: typeof renderOwnerDashboard === "function" ? renderOwnerDashboard : null, renderOverviewRecentRecords: typeof renderOverviewRecentRecords === "function" ? renderOverviewRecentRecords : null, setRecordsSubtab: typeof setRecordsSubtab === "function" ? setRecordsSubtab : null, getFilteredRecords: typeof getFilteredRecords === "function" ? getFilteredRecords : null, getActiveRecordsSubtab: () => typeof activeRecordsSubtab === "undefined" ? null : activeRecordsSubtab, updateFilterSummary: typeof updateFilterSummary === "function" ? updateFilterSummary : null, trapModalFocus: typeof trapModalFocus === "function" ? trapModalFocus : null, openQuickEntryMenu: typeof openQuickEntryMenu === "function" ? openQuickEntryMenu : null, closeQuickEntryMenu: typeof closeQuickEntryMenu === "function" ? closeQuickEntryMenu : null, setDocumentActiveElement: value => { document.activeElement = value; }, escapeIcsText: typeof escapeIcsText === "function" ? escapeIcsText : null, foldIcsLine: typeof foldIcsLine === "function" ? foldIcsLine : null, buildCalendarUid: typeof buildCalendarUid === "function" ? buildCalendarUid : null, buildCalendarFile: typeof buildCalendarFile === "function" ? buildCalendarFile : null, getCalendarTask: typeof getCalendarTask === "function" ? getCalendarTask : null, openCalendarReminder: typeof openCalendarReminder === "function" ? openCalendarReminder : null, getPendingCalendarTask: () => typeof pendingCalendarTask === "undefined" ? null : pendingCalendarTask, downloadCalendarReminder: typeof downloadCalendarReminder === "function" ? downloadCalendarReminder : null, getOwnershipCostBuckets: typeof getOwnershipCostBuckets === "function" ? getOwnershipCostBuckets : null, getDataQualityIssues: typeof getDataQualityIssues === "function" ? getDataQualityIssues : null, renderDataQualityPanel: typeof renderDataQualityPanel === "function" ? renderDataQualityPanel : null, renderFuelLogSection: typeof renderFuelLogSection === "function" ? renderFuelLogSection : null, getFuelStats: typeof getFuelStats === "function" ? getFuelStats : null, getRecords: () => records, getDownloadLabels: () => __downloadLabels, setRecords: value => { records = value; }, setDeleteTargetIndex: value => { deleteTargetIndex = value; } };`, context);
-  vm.runInContext(`Object.assign(globalThis.__testApi, {
-    initData: typeof initData === "function" ? initData : null,
-    parseCloudState: typeof parseCloudState === "function" ? parseCloudState : null,
-    syncToCloud: typeof syncToCloud === "function" ? syncToCloud : null,
-    getLastCloudFingerprint: () => typeof lastCloudFingerprint === "undefined" ? null : lastCloudFingerprint,
-    setLastCloudFingerprint: value => { lastCloudFingerprint = value; }
-  });`, context);
-  return { api: context.__testApi, element: getElement, localStore };
-}
-
-function fuelRecord() {
-  return {
-    date: "2026-07-14",
-    mileage: 1000,
-    category: "加油",
-    cost: 1000,
-    detail: "加油｜98｜31.00 L｜加滿｜牌告 33.3 元/L｜優惠 1.8 元/L｜實付 31.5 元/L",
-    note: "全國加油站"
-  };
-}
-
-function deferred() {
-  let resolve;
-  const promise = new Promise(next => { resolve = next; });
-  return { promise, resolve };
+function jsonResponse(body) {
+  return { ok: true, json: async () => body };
 }
 
 test("editing a fuel record opens the fuel editor with parsed values", () => {
@@ -195,17 +114,52 @@ test("the focused overview exposes four primary surfaces in order", () => {
   assert.match(html, /id="moreVehicleStatus"/);
 });
 
-test("the next-service hero uses the delivery baseline before the first service", () => {
-  const { api, element } = loadApp();
+test("the next-service hero tracks 7,500 km from the delivery baseline before the first service", () => {
+  const { api, element } = loadApp({ today: "2026-06-10T09:00:00" });
   api.setRecords([]);
 
   api.updateStats();
 
-  assert.equal(element("statNextMaintenance").textContent, "剩 10,000 km · 2027-05-28");
+  assert.equal(element("statNextMaintenance").textContent, "剩 7,500 km");
+  assert.equal(element("statNextMaintenanceMeta").textContent, "最晚 2027-05-28");
+  assert.equal(element("maintenanceProgress").hidden, false);
+  assert.equal(element("maintenanceProgressBar").style.width, "0%");
+});
+
+test("maintenance becomes schedulable at 6,500 km and due at 7,500 km after the last service", () => {
+  const service = { date: "2026-06-01", mileage: 1000, category: "保養", cost: 3000, detail: "機油、機油芯", note: "" };
+  const statusAt = mileage => {
+    const { api } = loadApp({ today: "2026-10-02T09:00:00" });
+    api.setRecords([service, { date: "2026-10-01", mileage, category: "其他", cost: 0, detail: "目前里程更新", note: "" }]);
+    return api.getMaintenanceSchedule().status;
+  };
+
+  assert.equal(statusAt(7400), "ok");
+  assert.equal(statusAt(7500), "soon");
+  assert.equal(statusAt(8500), "due");
+});
+
+test("the next service date is projected from the recent driving pace", () => {
+  const { api, element } = loadApp({ today: "2026-10-02T09:00:00" });
+  api.setRecords([
+    { date: "2026-08-03", mileage: 3000, category: "其他", cost: 0, detail: "目前里程更新", note: "" },
+    { date: "2026-10-01", mileage: 6000, category: "其他", cost: 0, detail: "目前里程更新", note: "" }
+  ]);
+
+  const schedule = api.getMaintenanceSchedule();
+  api.updateStats();
+
+  // 3,000 km in 59 days ≈ 50.8 km/day, so the remaining 1,500 km take about 30 days.
+  assert.equal(api.formatDateYMD(schedule.projectedDate), "2026-10-31");
+  assert.equal(element("statNextMaintenance").textContent, "剩 1,500 km");
+  assert.equal(element("statNextMaintenanceMeta").textContent, "預估 2026-10-31 · 最晚 2027-05-28");
+  const task = api.getCalendarTask(api.getMaintenanceActionState());
+  assert.equal(task.date, "2026-10-31");
+  assert.match(task.description, /預估 2026-10-31 達 7,500 公里/);
 });
 
 test("a normal maintenance schedule remains an actionable dated task", () => {
-  const { api } = loadApp();
+  const { api } = loadApp({ today: "2026-10-02T09:00:00" });
   api.setRecords([
     fuelRecord(),
     { date: "2026-08-07", mileage: 3249, category: "其他", cost: 0, detail: "目前里程更新", note: "" },
@@ -216,7 +170,48 @@ test("a normal maintenance schedule remains an actionable dated task", () => {
   const first = api.buildOwnerActions()[0];
 
   assert.equal(first.name, "下次定期保養");
-  assert.equal(api.getCalendarTask(first).date, "2027-05-28");
+  assert.equal(api.getCalendarTask(first).date, "2026-11-08");
+});
+
+test("bumper repairs and tire rotations do not reset insurance, tire or maintenance tracking", () => {
+  const { api } = loadApp({ today: "2026-10-02T09:00:00" });
+  const rule = name => api.CONSUMABLE_RULES.find(item => item.name === name);
+  api.setRecords([
+    { date: "2026-06-01", mileage: 500, category: "其他", cost: 0, detail: "目前里程更新", note: "" },
+    { date: "2026-09-20", mileage: 9000, category: "維修", cost: 4500, detail: "前保險桿刮傷烤漆", note: "" },
+    { date: "2026-09-21", mileage: 9010, category: "保養", cost: 0, detail: "輪胎換位、胎壓檢查", note: "" }
+  ]);
+
+  assert.equal(api.buildTrackerState(rule("保險")).meta, "下一次約 2027-05-28");
+  assert.match(api.buildTrackerState(rule("輪胎")).meta, /交車 0 km 起算/);
+  assert.equal(api.getLastMaintenanceRecord(), undefined);
+  assert.equal(api.parseLocalRecordDraft("前保險桿烤漆 3500").draft.category, "維修");
+});
+
+test("a transmission service does not reset the 7,500 km maintenance tracking", () => {
+  const { api } = loadApp({ today: "2026-10-02T09:00:00" });
+  api.setRecords([
+    { date: "2026-07-01", mileage: 3000, category: "保養", cost: 3000, detail: "機油、機油芯", note: "" },
+    { date: "2026-09-01", mileage: 6000, category: "保養", cost: 8000, detail: "變速箱油、濾網、油底殼檢查", note: "" }
+  ]);
+
+  const schedule = api.getMaintenanceSchedule();
+
+  assert.equal(schedule.latest.detail, "機油、機油芯");
+  assert.equal(schedule.dueMileage, 10500);
+});
+
+test("insurance renewal is flagged a month before it expires", () => {
+  const renewal = { date: "2026-05-28", mileage: 0, category: "保險", cost: 30000, detail: "強制險、任意險續保", note: "" };
+  const statusOn = today => {
+    const { api } = loadApp({ today });
+    api.setRecords([renewal]);
+    return api.buildTrackerState(api.CONSUMABLE_RULES.find(item => item.name === "保險")).status;
+  };
+
+  assert.equal(statusOn("2027-04-20T09:00:00"), "ok");
+  assert.equal(statusOn("2027-04-29T09:00:00"), "soon");
+  assert.equal(statusOn("2027-05-28T09:00:00"), "due");
 });
 
 test("the overview recent preview renders at most three records", () => {
@@ -458,7 +453,7 @@ test("owner actions route to their forms and deleted records can be restored", (
   api.handleDeleteConfirm();
   assert.equal(api.getRecords().length, 0);
   assert.equal(element("toastAction").textContent, "復原");
-  api.restoreDeletedRecord();
+  api.undoLastChange();
   assert.deepEqual(api.getRecords(), [original]);
 });
 
@@ -504,79 +499,115 @@ test("cloud state accepts legacy arrays and versioned envelopes", () => {
   });
 });
 
-test("initial cloud read requests sync state and retains its fingerprint", async () => {
+test("initial cloud read requests sync state and keeps its fingerprint as the base", async () => {
   const calls = [];
   const record = fuelRecord();
   const { api } = loadApp({
     fetchImpl: async url => {
       calls.push(url);
-      return {
-        ok: true,
-        json: async () => ({ records: [record], fingerprint: "sheet-v2", updatedAt: "" })
-      };
+      return jsonResponse({ records: [record], fingerprint: "sheet-v2", updatedAt: "" });
     }
   });
 
-  assert.equal(typeof api.initData, "function");
   await api.initData();
 
   assert.match(calls[0], /\?action=syncState$/);
-  assert.deepEqual(api.getRecords(), [record]);
-  assert.equal(api.getLastCloudFingerprint(), "sheet-v2");
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getRecords())), [record]);
+  assert.equal(api.getSyncMeta().baseFingerprint, "sheet-v2");
+  assert.equal(api.getSyncMeta().dirty, false);
 });
 
-test("cloud writes use a guarded envelope and update the fingerprint", async () => {
+test("local records render before the cloud responds", () => {
+  const pending = deferred();
+  const record = { ...fuelRecord(), mileage: 4321 };
+  const localStore = new Map([["newSuperbMaintenanceRecords_v1", JSON.stringify([record])]]);
+  const { api, element } = loadApp({ fetchImpl: () => pending.promise, localStore });
+
+  api.initData();
+
+  assert.equal(api.getRecords().length, 1);
+  assert.equal(element("statCurrentMileage").textContent, "4,321");
+  assert.match(element("syncStatus").textContent, /同步中/);
+});
+
+test("saving sends the guarded envelope and advances the base", async () => {
   const calls = [];
   const record = fuelRecord();
   const { api } = loadApp({
-    fetchImpl: async (url, options) => {
+    fetchImpl: async (url, options = {}) => {
       calls.push({ url, options });
-      return { ok: true, json: async () => ({ status: "success", fingerprint: "sheet-v3" }) };
+      return jsonResponse({ status: "success", fingerprint: "sheet-v3" });
     }
   });
-  api.setLastCloudFingerprint("sheet-v2");
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta([]));
 
-  assert.equal(await api.syncToCloud([record]), true);
-  const payload = JSON.parse(calls[0].options.body);
-  assert.deepEqual(payload, {
+  api.setRecords([record]);
+  await api.saveRecords(api.getRecords());
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
     records: [record],
     expectedFingerprint: "sheet-v2",
     allowDestructiveReplace: false,
     reason: "save"
   });
-  assert.equal(api.getLastCloudFingerprint(), "sheet-v3");
+  assert.equal(api.getSyncMeta().baseFingerprint, "sheet-v3");
+  assert.equal(api.getSyncMeta().dirty, false);
 });
 
-test("cloud conflicts keep the local copy and show an actionable warning", async () => {
-  const { api, element } = loadApp({
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => ({ status: "conflict", message: "雲端資料已變更，請重新載入後再試。" })
-    })
-  });
-  api.setLastCloudFingerprint("sheet-v2");
-
-  assert.equal(await api.syncToCloud([fuelRecord()]), false);
-  assert.equal(api.getLastCloudFingerprint(), "sheet-v2");
-  assert.match(element("syncStatus").textContent, /雲端資料已變更/);
-  assert.match(element("syncStatus").textContent, /本機資料仍保留/);
-});
-
-test("confirmed restore explicitly allows a destructive cloud replacement", async () => {
+test("a confirmed restore explicitly allows a destructive cloud replacement", async () => {
   let payload;
   const { api } = loadApp({
-    fetchImpl: async (_url, options) => {
+    fetchImpl: async (_url, options = {}) => {
       payload = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ status: "success", fingerprint: "restored-v1" }) };
+      return jsonResponse({ status: "success", fingerprint: "restored-v1" });
     }
   });
-  api.setLastCloudFingerprint("sheet-v2");
+  api.setSyncMeta(syncedMeta([fuelRecord(), { ...fuelRecord(), date: "2026-07-15" }]));
 
-  await api.syncToCloud([fuelRecord()], { allowDestructiveReplace: true, reason: "restore" });
+  await api.saveRecords([fuelRecord()], { allowDestructiveReplace: true });
 
   assert.equal(payload.allowDestructiveReplace, true);
   assert.equal(payload.reason, "restore");
+  assert.equal(api.getSyncMeta().pendingRestore, false);
 });
+
+test("a rejected write keeps local data marked as unsynced", async () => {
+  const { api, element } = loadApp({
+    fetchImpl: async () => jsonResponse({ status: "rejected", message: "安全保護已阻止一次刪除過多紀錄" })
+  });
+  api.setSyncMeta(syncedMeta([fuelRecord()]));
+
+  await api.saveRecords([]);
+
+  assert.match(element("syncStatus").textContent, /安全保護已阻止/);
+  assert.match(element("syncStatus").textContent, /本機資料仍保留/);
+  assert.equal(api.getSyncMeta().dirty, true);
+});
+
+test("three-way merge keeps changes from both sides", () => {
+  const { api } = loadApp();
+  const shared = { ...fuelRecord(), date: "2026-07-01" };
+  const editedBefore = { ...fuelRecord(), date: "2026-07-02", note: "原本" };
+  const editedAfter = { ...editedBefore, note: "本機修改" };
+  const removedLocally = { ...fuelRecord(), date: "2026-07-03" };
+  const addedLocally = { ...fuelRecord(), date: "2026-07-04" };
+  const addedInCloud = { ...fuelRecord(), date: "2026-07-05" };
+
+  const merged = api.mergeRecordLists(
+    [shared, editedBefore, removedLocally],
+    [shared, editedAfter, addedLocally],
+    [shared, editedBefore, removedLocally, addedInCloud]
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(merged.records)).map(record => record.date + record.note),
+    ["2026-07-01全國加油站", "2026-07-02本機修改", "2026-07-04全國加油站", "2026-07-05全國加油站"]
+  );
+  assert.equal(merged.cloudChanges, 1);
+});
+
 
 test("backup helpers validate the envelope and find only likely duplicates", () => {
   const { api } = loadApp();
@@ -592,7 +623,9 @@ test("backup helpers validate the envelope and find only likely duplicates", () 
   assert.equal(api.validateBackupEnvelope(envelope).ok, true);
   assert.equal(api.validateBackupEnvelope({ format: "wrong", version: 1, records: [] }).ok, false);
   assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: {} }).ok, false);
-  assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: [{ ...original, detail: "" }] }).ok, false);
+  assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: [{ ...original, detail: "" }] }).ok, true);
+  assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: [{ ...original, date: "", category: "", detail: "" }] }).ok, false);
+  assert.equal(api.validateBackupEnvelope({ format: envelope.format, version: 1, records: [{ ...original, cost: "1000" }] }).ok, false);
 
   api.setRecords([original]);
   assert.equal(api.findLikelyDuplicates({ ...original }).length, 1);
@@ -799,9 +832,14 @@ test("the README documents focused mobile and iPhone calendar verification", () 
 
 test("the release documents sync conflicts server backups and deployment order", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
-  assert.match(app, /const APP_VERSION = "v2026\.09\.04\.1"/);
+  const version = app.match(/const APP_VERSION = "v([\d.]+)"/)[1];
+  assert.equal(version, "2026.10.02.1");
+  // Asset URLs carry the release version so phones fetch the new files after a deploy.
+  assert.deepEqual([...html.matchAll(/(?:href|src)="(?:styles\.css|app\.js)\?v=([\d.]+)"/g)].map(match => match[1]), [version, version]);
+  assert.match(html, new RegExp(`id="appVersion">v${version.replace(/\./g, "\\.")}<`));
   assert.match(readme, /同步衝突/);
   assert.match(readme, /本機資料仍保留/);
   assert.match(readme, /保養紀錄備份/);
