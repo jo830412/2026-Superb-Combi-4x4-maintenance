@@ -33,11 +33,7 @@ function createElement() {
 }
 
 function loadApp({ fetchImpl, urlApi, createElementImpl } = {}) {
-  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-  const script = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)]
-    .map(match => match[1])
-    .filter(source => source.trim())
-    .at(-1);
+  const script = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
   const elements = new Map();
   const getElement = id => {
     if (!elements.has(id)) elements.set(id, createElement());
@@ -173,8 +169,9 @@ test("an unchanged fuel edit excludes itself from duplicate warnings", () => {
 
 test("the mobile UI provides view tabs and five quick-entry routes", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
 
-  assert.match(html, /function setActiveView\(/);
+  assert.match(app, /function setActiveView\(/);
   assert.match(html, /id="overviewView"/);
   assert.match(html, /id="recordsView"/);
   assert.match(html, /id="analysisView"/);
@@ -249,8 +246,8 @@ test("record subtabs keep fuel analysis out of the all-records panel", () => {
 });
 
 test("the hidden attribute always removes inactive UI from layout", () => {
-  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-  assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
+  const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
 });
 
 test("the mileage subtab filters to mileage status records without clearing search", () => {
@@ -315,7 +312,8 @@ test("quick entry prioritizes fuel and service with accessible mobile controls",
 
   assert.match(html, /class="quick-entry-primary"[\s\S]*data-quick-entry="fuel"[\s\S]*data-quick-entry="service"/);
   assert.match(html, /class="quick-entry-secondary"[\s\S]*data-quick-entry="mileage"[\s\S]*data-quick-entry="photo"[\s\S]*data-quick-entry="text"/);
-  assert.match(html, /\.quick-entry-btn\s*\{[^}]*min-height:\s*44px/s);
+  const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  assert.match(css, /\.quick-entry-btn\s*\{[^}]*min-height:\s*44px/s);
   assert.match(html, /id="quickEntryModal"[^>]*role="dialog"[^>]*aria-modal="true"/);
 });
 
@@ -800,10 +798,10 @@ test("the README documents focused mobile and iPhone calendar verification", () 
 });
 
 test("the release documents sync conflicts server backups and deployment order", () => {
-  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
-  assert.match(html, /const APP_VERSION = "v2026\.09\.04\.1"/);
+  assert.match(app, /const APP_VERSION = "v2026\.09\.04\.1"/);
   assert.match(readme, /同步衝突/);
   assert.match(readme, /本機資料仍保留/);
   assert.match(readme, /保養紀錄備份/);
