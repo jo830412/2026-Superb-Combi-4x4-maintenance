@@ -13,7 +13,7 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.05.1";
+const APP_VERSION = "v2026.10.05.2";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
@@ -2425,12 +2425,12 @@ function getCostSplit(since = null) {
   return split;
 }
 
-// 某天之後開了多少公里：從那天（含）以前最後一筆里程算起；車齡比區間短時從交車里程算起。
+// 某天之後開了多少公里：從那天（含）以前最後一筆里程算起；車齡比區間短時從交車里程算起，
+// 與持有成本摘要的每公里成本一致（交車當天補登的里程不算起點）。
 function getMileageDrivenSince(since) {
-  const points = getMileagePoints();
-  if (!points.length) return 0;
-  const start = [...points].reverse().find(point => point.date <= since) || points[0];
-  return Math.max(getEffectiveCurrentMileage() - start.mileage, 0);
+  const start = [...getMileagePoints()].reverse().find(point => point.date <= since);
+  const startMileage = start ? start.mileage : getVehicleBaselineMileage();
+  return Math.max(getEffectiveCurrentMileage() - startMileage, 0);
 }
 
 function getUpgradeCostEntries() {

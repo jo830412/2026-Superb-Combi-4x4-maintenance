@@ -448,8 +448,8 @@ test("drafts without a mileage only get the current mileage when dated today", (
 
 function ownershipRecords() {
   return [
-    { date: "2026-05-28", mileage: 1, category: "保險", cost: 33000, detail: "丙式保險", note: "" },
-    { date: "2026-05-28", mileage: 1, category: "其他", cost: 20000, detail: "前檔隔熱紙", note: "新車隔熱紙加價費用" },
+    { date: "2026-05-28", mileage: 50, category: "保險", cost: 33000, detail: "丙式保險", note: "" },
+    { date: "2026-05-28", mileage: 50, category: "其他", cost: 20000, detail: "前檔隔熱紙", note: "新車隔熱紙加價費用" },
     { date: "2026-06-05", mileage: 400, category: "清潔美容", cost: 37000, detail: "犀牛皮", note: "" },
     { date: "2026-08-11", mileage: 3249, category: "改裝升級", cost: 50000, detail: "輪框改裝\n水晶黑", note: "" },
     { date: "2026-09-30", mileage: 6000, category: "其他", cost: 0, detail: "目前里程更新", note: "" },
@@ -479,6 +479,8 @@ test("the cost summary lists upgrades newest first with their total", () => {
 
   api.renderOwnershipCostPanel();
   assert.match(element("ownershipSummary").textContent, /用車 NT\$ 36,000/);
+  // 與總覽的「每公里 6.0 元」相同：都從交車基準起算，不是交車當天補登的 50 km。
+  assert.match(element("ownershipSummary").textContent, /每公里 NT\$ 6\.0/);
   assert.match(element("ownershipSummary").textContent, /改裝美容 NT\$ 107,000/);
   assert.match(element("ownershipCostGrid").innerHTML, /用車[\s\S]*保養維修[\s\S]*改裝美容[\s\S]*美容與其他/);
   assert.equal(element("upgradeCostList").hidden, false);
