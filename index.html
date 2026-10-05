@@ -16,7 +16,7 @@
     // 在樣式套用前決定主題，避免開啟時先閃一下深色。
     try { if (localStorage.getItem("newSuperbTheme_v1") === "light") document.documentElement.dataset.theme = "light"; } catch (error) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.10.02.2" />
+  <link rel="stylesheet" href="styles.css?v=2026.10.05.1" />
 </head>
 <body>
   <!-- 頂部導覽列 -->
@@ -28,7 +28,7 @@
           <h1 class="logo-title"><span class="logo-title-full">2026 Superb Combi 4x4 保養維修紀錄</span><span class="logo-title-short">Superb 保養紀錄</span></h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.10.02.2</span>
+            <span class="version-badge" id="appVersion">v2026.10.05.1</span>
           </div>
         </div>
       </div>
@@ -65,6 +65,7 @@
       <strong id="statNextMaintenance">—</strong>
       <div class="maintenance-progress" id="maintenanceProgress" role="progressbar" aria-label="距離下次保養的里程" aria-valuemin="0" aria-valuemax="7500" aria-valuenow="0" hidden><span id="maintenanceProgressBar"></span></div>
       <small id="statNextMaintenanceMeta">依目前保養紀錄推估</small>
+      <button class="btn btn-primary btn-sm dashboard-next-action" id="btnLogMaintenance" type="button" hidden>記錄保養</button>
     </div>
   </section>
 
@@ -72,10 +73,12 @@
     <article class="dashboard-metric-card">
       <span>最近油耗</span>
       <div><strong id="statLastFuel">—</strong><small>km/L</small></div>
+      <small class="dashboard-metric-meta" id="statLastFuelMeta"></small>
     </article>
     <article class="dashboard-metric-card">
-      <span>近 12 月花費</span>
+      <span>近 12 月用車成本</span>
       <div><strong id="statRecentCost">—</strong><small>NT$</small></div>
+      <small class="dashboard-metric-meta" id="statRecentCostMeta">油、保養維修、保險稅費</small>
     </article>
   </section>
 
@@ -105,7 +108,7 @@
       <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statWarrantyStart">—</div><div class="stat-label">保固期限</div></div></div>
       <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statLastMaintenance">—</div><div class="stat-label">上次保養</div></div></div>
       <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statTotalCost">—</div><div class="stat-label">總花費 NT$</div></div></div>
-      <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statCostPerKm">—</div><div class="stat-label">每公里持有成本</div></div></div>
+      <div class="stat-card"><div class="stat-content"><div class="stat-topline"><div class="stat-value" id="statUpgradeCost">—</div><button class="btn btn-ghost btn-sm stat-action" id="btnUpgradeList" type="button" hidden>清單</button></div><div class="stat-label" id="statUpgradeLabel">改裝美容 NT$</div></div></div>
       <div class="stat-card"><div class="stat-content"><div class="stat-topline"><div class="stat-value" id="statFuelAdditive">—</div><button class="btn btn-ghost btn-sm stat-action" id="btnAddFuelAdditive" type="button">已添加</button></div><div class="stat-label" id="statFuelAdditiveLabel">汽油精追蹤</div></div></div>
       <div class="stat-card"><div class="stat-content"><div class="stat-value" id="statTotalRecords">—</div><div class="stat-label">總紀錄筆數</div></div></div>
       <div class="stat-card"><div class="stat-content"><div class="stat-value" id="ownerFixedCost">—</div><div class="stat-label">年度固定費</div></div></div>
@@ -124,6 +127,10 @@
         <div class="ownership-summary" id="ownershipSummary">尚無費用資料</div>
       </div>
       <div class="ownership-grid" id="ownershipCostGrid"></div>
+      <details class="upgrade-list" id="upgradeCostList" hidden>
+        <summary id="upgradeCostSummary">改裝美容清單</summary>
+        <div class="upgrade-list-items" id="upgradeCostItems"></div>
+      </details>
     </div>
   </section>
 
@@ -192,7 +199,7 @@
         <button class="btn btn-ghost" id="btnLegacyStashDownload" type="button" hidden>下載升級前的本機資料</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
-      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.02.2</span></p>
+      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.05.1</span></p>
     </details>
   </section>
 
@@ -610,6 +617,6 @@
     <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
   </div>
 
-  <script src="app.js?v=2026.10.02.2" defer></script>
+  <script src="app.js?v=2026.10.05.1" defer></script>
 </body>
 </html>

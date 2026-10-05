@@ -13,7 +13,7 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.02.2";
+const APP_VERSION = "v2026.10.05.1";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
@@ -1483,18 +1483,24 @@ function updateStats() {
   document.getElementById("statLastMaintenance").textContent =
     lastMaint?.date ? lastMaint.date.substring(0, 7) : "—";
 
-  const recentTotal = serviceRecords.reduce((sum, r) => {
-    const d = parseDate(r.date);
-    return d && d >= oneYearAgo ? sum + asNumber(r.cost) : sum;
-  }, 0);
-  document.getElementById("statRecentCost").textContent = recentTotal > 0
-    ? formatCompactCost(recentTotal)
+  // 總覽只看用車成本（油、保養維修、保險稅費），改裝美容另外列在「更多車況」。
+  const recentSplit = getCostSplit(oneYearAgo);
+  const recentKm = getMileageDrivenSince(oneYearAgo);
+  document.getElementById("statRecentCost").textContent = recentSplit.running > 0
+    ? formatCompactCost(recentSplit.running)
     : "0";
+  document.getElementById("statRecentCostMeta").textContent = recentSplit.running > 0 && recentKm > 0
+    ? `每公里 ${(recentSplit.running / recentKm).toFixed(1)} 元\n其中油錢 ${(recentSplit.fuel / recentKm).toFixed(1)} 元`
+    : "油、保養維修、保險稅費";
 
-  const ownershipCost = getCostRecords().reduce((sum, r) => sum + asNumber(r.cost), 0);
-  document.getElementById("statCostPerKm").textContent = maxMile > 0 && ownershipCost > 0
-    ? "NT$ " + (ownershipCost / maxMile).toFixed(1)
-    : "—";
+  const totalSplit = getCostSplit();
+  document.getElementById("statUpgradeCost").textContent = totalSplit.upgrades > 0
+    ? formatCompactCost(totalSplit.upgrades)
+    : "0";
+  document.getElementById("statUpgradeLabel").textContent = totalSplit.upgradeCount
+    ? `改裝美容 NT$・${totalSplit.upgradeCount} 項`
+    : "改裝美容 NT$";
+  document.getElementById("btnUpgradeList").hidden = totalSplit.upgradeCount === 0;
 
   const fuelStats = getFuelStats();
   document.getElementById("statAvgFuel").textContent = fuelStats.averageKmPerLiter
@@ -1503,6 +1509,9 @@ function updateStats() {
   document.getElementById("statLastFuel").textContent = fuelStats.latestKmPerLiter
     ? fuelStats.latestKmPerLiter.toFixed(1)
     : fuelStats.logs.length ? "待計算" : "—";
+  document.getElementById("statLastFuelMeta").textContent = fuelStats.averageKmPerLiter
+    ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L`
+    : "";
   const warrantyStart = parseDate(WARRANTY_START_DATE);
   document.getElementById("statWarrantyStart").textContent = warrantyStart
     ? formatDateYMD(addMonths(warrantyStart, WARRANTY_MONTHS))
@@ -1547,6 +1556,8 @@ function renderMaintenanceHero(schedule) {
     ? "該保養"
     : describeMaintenanceRemaining(schedule);
   if (metaEl) metaEl.textContent = describeMaintenanceDates(schedule);
+  const logButton = document.getElementById("btnLogMaintenance");
+  if (logButton) logButton.hidden = schedule.status !== "soon" && schedule.status !== "due";
   if (progressEl && barEl) {
     progressEl.hidden = schedule.progress == null;
     progressEl.className = "maintenance-progress maintenance-progress-" + schedule.status;
@@ -1644,6 +1655,14 @@ function isRoutineMaintenanceRecord(record) {
 
 function getLastMaintenanceRecord() {
   return getRecordsNewestFirst().find(isRoutineMaintenanceRecord);
+}
+
+// 依里程追蹤的項目（定期保養、變速箱油、輪胎、冷氣濾網、汽油精）少了里程就算不出下一次。
+function getMileageTrackedName(record) {
+  if (isRoutineMaintenanceRecord(record)) return "定期保養";
+  const rule = CONSUMABLE_RULES.find(item => item.dueKm && recordMatchesRule(record, item));
+  if (rule) return rule.name;
+  return recordMatchesRule(record, FUEL_ADDITIVE_RULE) ? "汽油精" : "";
 }
 
 // 每天最高里程的時間序列（含交車基準），用來推估開車速度。
@@ -2000,6 +2019,8 @@ function getChartTheme() {
     bar: read("--chart-bar", "rgba(88,166,255,0.65)"),
     barBorder: read("--chart-bar-border", "#58a6ff"),
     barHover: read("--chart-bar-hover", "rgba(121,184,255,0.85)"),
+    barMuted: read("--chart-bar-muted", "#6e7681"),
+    barMutedHover: read("--chart-bar-muted-hover", "#8b949e"),
     font: read("--font-sans", "sans-serif")
   };
 }
@@ -2337,61 +2358,99 @@ const OWNERSHIP_CATEGORY_BUCKETS = Object.freeze({
   加油: "fuel",
   保險: "legal",
   "檢驗/稅費": "legal",
-  改裝升級: "accessory"
+  改裝升級: "accessory",
+  清潔美容: "other"
 });
 
-function getOwnershipCostBucketKey(record, buckets) {
+const OWNERSHIP_COST_BUCKETS = Object.freeze([
+  { key: "service", name: "保養維修", terms: ["保養", "維修", "更換", "機油", "輪胎", "電瓶", "煞車", "變速箱", "濾網"] },
+  { key: "fuel", name: "燃料加油", terms: ["加油", "油費", "汽油"] },
+  { key: "legal", name: "保險稅費", terms: ["保險", "強制險", "任意險", "牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費", "驗車", "檢驗"] },
+  { key: "accessory", name: "配件改裝", terms: ["改裝", "升級", "隔熱紙", "行車記錄器", "車標", "配件"] },
+  { key: "other", name: "美容與其他", terms: [] }
+]);
+
+// 用車成本只算油、保養維修與保險稅費；改裝、配件、美容等一次性花費另計為「改裝美容」。
+const RUNNING_COST_BUCKET_KEYS = ["service", "fuel", "legal"];
+const COST_GROUPS = [
+  { key: "running", name: "用車", bucketKeys: RUNNING_COST_BUCKET_KEYS },
+  { key: "upgrades", name: "改裝美容", bucketKeys: ["accessory", "other"] }
+];
+
+function getOwnershipCostBucketKey(record) {
   const explicitKey = OWNERSHIP_CATEGORY_BUCKETS[record.category];
   if (explicitKey) return explicitKey;
 
   const text = stripPhrases(`${record.category || ""} ${record.detail || ""} ${record.note || ""}`, ["保險桿", "保險絲"]);
-  const inferred = buckets.find(item =>
+  const inferred = OWNERSHIP_COST_BUCKETS.find(item =>
     item.key !== "other" && item.terms.some(term => text.includes(term))
   );
   return inferred ? inferred.key : "other";
 }
 
 function getOwnershipCostBuckets() {
-  const buckets = [
-    {
-      key: "service",
-      name: "保養維修",
-      terms: ["保養", "維修", "更換", "機油", "輪胎", "電瓶", "煞車", "變速箱", "濾網"],
-      total: 0
-    },
-    {
-      key: "fuel",
-      name: "燃料加油",
-      terms: ["加油", "油費", "汽油"],
-      total: 0
-    },
-    {
-      key: "legal",
-      name: "保險稅費",
-      terms: ["保險", "強制險", "任意險", "牌照稅", "燃料稅", "燃料費", "汽燃費", "公路養管費", "驗車", "檢驗"],
-      total: 0
-    },
-    {
-      key: "accessory",
-      name: "配件改裝",
-      terms: ["改裝", "升級", "隔熱紙", "行車記錄器", "車標", "配件"],
-      total: 0
-    },
-    {
-      key: "other",
-      name: "其他",
-      terms: [],
-      total: 0
-    }
-  ];
+  const buckets = OWNERSHIP_COST_BUCKETS.map(bucket => ({ ...bucket, total: 0 }));
 
   getCostRecords().forEach(record => {
-    const bucketKey = getOwnershipCostBucketKey(record, buckets);
+    const bucketKey = getOwnershipCostBucketKey(record);
     const bucket = buckets.find(item => item.key === bucketKey) || buckets[buckets.length - 1];
     bucket.total += asNumber(record.cost);
   });
 
   return buckets;
+}
+
+function isRunningCostRecord(record) {
+  return RUNNING_COST_BUCKET_KEYS.includes(getOwnershipCostBucketKey(record));
+}
+
+// 用車與改裝美容各自的花費；指定 since 時只算那天（含）之後的紀錄。
+function getCostSplit(since = null) {
+  const split = { running: 0, fuel: 0, upgrades: 0, upgradeCount: 0 };
+  getCostRecords().forEach(record => {
+    if (since) {
+      const date = parseDate(record.date);
+      if (!date || date < since) return;
+    }
+    const cost = asNumber(record.cost);
+    const bucketKey = getOwnershipCostBucketKey(record);
+    if (RUNNING_COST_BUCKET_KEYS.includes(bucketKey)) {
+      split.running += cost;
+      if (bucketKey === "fuel") split.fuel += cost;
+    } else {
+      split.upgrades += cost;
+      split.upgradeCount += 1;
+    }
+  });
+  return split;
+}
+
+// 某天之後開了多少公里：從那天（含）以前最後一筆里程算起；車齡比區間短時從交車里程算起。
+function getMileageDrivenSince(since) {
+  const points = getMileagePoints();
+  if (!points.length) return 0;
+  const start = [...points].reverse().find(point => point.date <= since) || points[0];
+  return Math.max(getEffectiveCurrentMileage() - start.mileage, 0);
+}
+
+function getUpgradeCostEntries() {
+  return records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => !isMileageUpdateRecord(record) && asNumber(record.cost) > 0 && !isRunningCostRecord(record))
+    .sort((a, b) => compareRecordValuesNewestFirst(a.record, b.record) || b.index - a.index);
+}
+
+// 年度費用圖：每年的用車與改裝美容花費。
+function getYearlyCostSplit() {
+  const years = new Map();
+  getCostRecords().forEach(record => {
+    const year = getYear(record.date);
+    if (!year) return;
+    const entry = years.get(year) || { year, running: 0, upgrades: 0 };
+    entry[isRunningCostRecord(record) ? "running" : "upgrades"] += asNumber(record.cost);
+    years.set(year, entry);
+  });
+  return [...years.values()].sort((a, b) => a.year.localeCompare(b.year));
 }
 
 function getOwnershipMonths() {
@@ -2410,10 +2469,12 @@ function renderOwnershipCostPanel() {
 
   const buckets = getOwnershipCostBuckets();
   const total = buckets.reduce((sum, bucket) => sum + bucket.total, 0);
+  const split = getCostSplit();
   const currentMileage = getCurrentMileage();
-  const monthlyAverage = total / getOwnershipMonths();
-  const costPerKm = currentMileage > 0 && total > 0 ? total / currentMileage : null;
+  const monthlyAverage = split.running / getOwnershipMonths();
+  const costPerKm = currentMileage > 0 && split.running > 0 ? split.running / currentMileage : null;
 
+  renderUpgradeCostList();
   if (!total) {
     summary.textContent = "尚無費用資料";
     grid.innerHTML = "";
@@ -2422,21 +2483,65 @@ function renderOwnershipCostPanel() {
 
   summary.textContent = [
     getOwnershipPeriodLabel(),
-    `累計 ${formatCost(total)}`,
+    `用車 ${formatCost(split.running)}`,
     `月均 ${formatCompactCurrency(Math.round(monthlyAverage))}`,
-    costPerKm ? `${currentMileage < 1000 ? "每公里暫估" : "每公里"} NT$ ${costPerKm.toFixed(1)}` : "每公里待里程"
+    costPerKm ? `${currentMileage < 1000 ? "每公里暫估" : "每公里"} NT$ ${costPerKm.toFixed(1)}` : "每公里待里程",
+    `改裝美容 ${formatCost(split.upgrades)}`
   ].join(" · ");
 
-  grid.innerHTML = buckets.map(bucket => {
-    const share = total ? Math.round((bucket.total / total) * 100) : 0;
+  const share = value => `${total ? Math.round((value / total) * 100) : 0}%`;
+  grid.innerHTML = COST_GROUPS.map(group => {
+    const groupBuckets = buckets.filter(bucket => group.bucketKeys.includes(bucket.key));
+    const groupTotal = groupBuckets.reduce((sum, bucket) => sum + bucket.total, 0);
     return `
-      <div class="ownership-item">
-        <div class="ownership-item-name">${escapeHtml(bucket.name)}</div>
-        <div class="ownership-item-value">${formatCompactCurrency(bucket.total)}</div>
-        <div class="ownership-item-share">${share}%</div>
+      <div class="ownership-group">
+        <div class="ownership-group-head">
+          <span>${escapeHtml(group.name)}</span>
+          <strong>${formatCompactCurrency(groupTotal)}</strong>
+          <small>${share(groupTotal)}</small>
+        </div>
+        <div class="ownership-group-items">
+          ${groupBuckets.map(bucket => `
+            <div class="ownership-item">
+              <div class="ownership-item-name">${escapeHtml(bucket.name)}</div>
+              <div class="ownership-item-value">${formatCompactCurrency(bucket.total)}</div>
+              <div class="ownership-item-share">${share(bucket.total)}</div>
+            </div>
+          `).join("")}
+        </div>
       </div>
     `;
   }).join("");
+}
+
+function renderUpgradeCostList() {
+  const list = document.getElementById("upgradeCostList");
+  const summary = document.getElementById("upgradeCostSummary");
+  const items = document.getElementById("upgradeCostItems");
+  if (!list || !summary || !items) return;
+
+  const entries = getUpgradeCostEntries();
+  list.hidden = entries.length === 0;
+  const total = entries.reduce((sum, { record }) => sum + asNumber(record.cost), 0);
+  summary.textContent = `改裝美容清單 · ${entries.length} 項 · ${formatCost(total)}`;
+  items.innerHTML = entries.map(({ record, index }) => `
+    <button class="overview-record upgrade-record" type="button" data-upgrade-record="${index}">
+      <span>
+        <strong>${escapeHtml(String(record.detail || "未填詳細內容").split(/\r?\n/)[0])}</strong>
+        <small>${escapeHtml(record.date || "未填日期")} · ${escapeHtml(record.category || "其他")}</small>
+      </span>
+      <span>${escapeHtml(formatCost(asNumber(record.cost)))}</span>
+    </button>
+  `).join("");
+}
+
+// 總覽「改裝美容」的清單按鈕：切到分析頁並展開清單。
+function showUpgradeCostList() {
+  setActiveView("analysis");
+  const list = document.getElementById("upgradeCostList");
+  if (!list || list.hidden) return;
+  list.open = true;
+  list.scrollIntoView?.({ block: "start" });
 }
 
 function renderDataQualityPanel() {
@@ -2705,51 +2810,66 @@ function buildFuelTrendChart() {
   });
 }
 
-function buildCostChart() {
-  // 按年度加總費用
-  const yearMap = {};
-  getServiceRecords().forEach(r => {
-    const y = getYear(r.date);
-    if (!y) return;
-    yearMap[y] = (yearMap[y] || 0) + asNumber(r.cost);
-  });
-  const years = Object.keys(yearMap).sort();
-  const vals  = years.map(y => yearMap[y]);
+function renderCostLegend() {
+  const legend = document.getElementById("costLegend");
+  if (!legend) return;
+  legend.innerHTML = COST_GROUPS
+    .map(group => `<span class="chart-legend-item chart-legend-${group.key}"><i aria-hidden="true"></i>${escapeHtml(group.name)}</span>`)
+    .join("");
+}
 
+// 每年一根長條：下段用車、上段改裝美容，中間以卡片底色隔開。
+function buildCostChart() {
+  const rows = getYearlyCostSplit();
   const canvas = document.getElementById("costChart");
   if (costChart) { costChart.destroy(); costChart = null; }
   const theme = getChartTheme();
+  renderCostLegend();
 
+  const segment = { stack: "cost", borderSkipped: false, maxBarThickness: 24 };
+  const topCorners = { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 };
   costChart = new Chart(canvas, {
     type: "bar",
     data: {
-      labels: years,
+      labels: rows.map(row => row.year),
       datasets: [{
-        label: "年度費用 (NT$)",
-        data: vals,
+        ...segment,
+        label: "用車",
+        data: rows.map(row => row.running),
         backgroundColor: theme.bar,
         hoverBackgroundColor: theme.barHover,
         borderWidth: 0,
-        borderRadius: 4,
-        maxBarThickness: 24
+        borderRadius: ctx => rows[ctx.dataIndex]?.upgrades > 0 ? 0 : topCorners
+      }, {
+        ...segment,
+        label: "改裝美容",
+        data: rows.map(row => row.upgrades),
+        backgroundColor: theme.barMuted,
+        hoverBackgroundColor: theme.barMutedHover,
+        borderColor: theme.surface,
+        borderWidth: ctx => ({ top: 0, right: 0, bottom: rows[ctx.dataIndex]?.running > 0 ? 2 : 0, left: 0 }),
+        borderRadius: topCorners
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 600, easing: "easeOutQuart" },
+      interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
           ...chartTooltipColors(theme),
           callbacks: {
-            label: ctx => "  NT$ " + ctx.raw.toLocaleString("zh-TW")
+            label: ctx => `  ${ctx.dataset.label} NT$ ${ctx.raw.toLocaleString("zh-TW")}`,
+            footer: items => "  合計 NT$ " + items.reduce((sum, item) => sum + item.raw, 0).toLocaleString("zh-TW")
           }
         }
       },
       scales: {
-        x: chartAxis(theme),
+        x: { stacked: true, ...chartAxis(theme) },
         y: {
+          stacked: true,
           beginAtZero: true,
           ...chartAxis(theme, {
             maxTicksLimit: 6,
@@ -3015,14 +3135,53 @@ function applyRecordTemplate(key) {
   clearFormMessage();
 }
 
+// 新增當天的紀錄先帶入目前里程；日期改成別天就清空。使用者自己輸入過里程後不再更動。
+function syncAutoMileage() {
+  const input = document.getElementById("formMileage");
+  if (input.dataset.autoMileage !== "true") return;
+  const currentMileage = getCurrentMileage();
+  const isToday = document.getElementById("formDate").value === getTodayString();
+  input.value = isToday && currentMileage > 0 ? String(currentMileage) : "";
+}
+
+// 照片、AI 草稿有里程就用草稿的；沒有時依日期決定要不要帶入目前里程。
+function setFormMileage(value) {
+  const input = document.getElementById("formMileage");
+  if (value) {
+    input.value = value;
+    delete input.dataset.autoMileage;
+  } else {
+    syncAutoMileage();
+  }
+}
+
+function handleRecordFormInput(id) {
+  clearFormMessage();
+  if (id === "formMileage") delete document.getElementById("formMileage").dataset.autoMileage;
+  if (id === "formDate") syncAutoMileage();
+  if (id === "formMileage" || id === "formDate") updateMileageHint();
+}
+
 function openAddModal() {
   document.getElementById("modalTitle").textContent = "新增保養/維修紀錄";
   document.getElementById("editIndex").value = "-1";
   document.getElementById("recordForm").reset();
   document.getElementById("formDate").value = getTodayString();
+  document.getElementById("formMileage").dataset.autoMileage = "true";
+  syncAutoMileage();
   clearFormMessage();
   updateMileageHint(-1);
   openDialog("modal");
+}
+
+// 「下次保養」卡片的「記錄保養」：帶入今天、目前里程與定期保養內容，里程再對照保養單修正。
+function openMaintenanceRecordModal() {
+  const { dueMileage } = getMaintenanceSchedule(now());
+  openAddModal();
+  document.getElementById("formCategory").value = "保養";
+  document.getElementById("formDetail").value =
+    (dueMileage ? `${dueMileage.toLocaleString("zh-TW")} km ` : "") + "定期保養：機油、機油芯、基本檢查";
+  showFormMessage("info", `請對照保養單確認里程；下次 ${MAINTENANCE_INTERVAL_KM.toLocaleString("zh-TW")} km 會從這筆的里程起算。`);
 }
 
 function openEditModal(idx) {
@@ -3034,6 +3193,7 @@ function openEditModal(idx) {
   document.getElementById("modalTitle").textContent = "編輯紀錄";
   document.getElementById("editIndex").value = idx;
   document.getElementById("formDate").value = r.date || "";
+  delete document.getElementById("formMileage").dataset.autoMileage;
   document.getElementById("formMileage").value = r.mileage || "";
   document.getElementById("formCategory").value = r.category || "";
   document.getElementById("formCost").value = r.cost || "";
@@ -3770,7 +3930,7 @@ function applyPhotoParsedToForm() {
 
   openAddModal();
   document.getElementById("formDate").value = parsed.date || getTodayString();
-  document.getElementById("formMileage").value = parsed.mileage || "";
+  setFormMileage(parsed.mileage);
   document.getElementById("formCategory").value = parsed.category || "保養";
   document.getElementById("formCost").value = parsed.cost || "";
   document.getElementById("formDetail").value = parsed.detail || "照片辨識紀錄";
@@ -4106,7 +4266,7 @@ function applyAiServiceDraft(result, sourceText) {
   closeAiModal();
   openAddModal();
   document.getElementById("formDate").value = normalizeAiDate(draft.date);
-  document.getElementById("formMileage").value = getAiDraftInteger(draft.mileage) || "";
+  setFormMileage(getAiDraftInteger(draft.mileage));
   document.getElementById("formCategory").value = normalizeAiCategory(draft.category, sourceText);
   document.getElementById("formCost").value = getAiDraftInteger(draft.cost) || "";
   document.getElementById("formTemplate").value = "";
@@ -4369,6 +4529,13 @@ function handleFormSubmit(e) {
   const originalMileage = idx >= 0 ? Number(records[idx]?.mileage) : null;
   const mileageChanged = idx === -1 || originalMileage !== rec.mileage;
   const saveBtn = e.submitter || document.querySelector("#recordForm button[type='submit']");
+  const trackedName = rec.mileage === null ? getMileageTrackedName(rec) : "";
+  if (trackedName && !saveBtn.dataset.confirmedMileage) {
+    const nextText = trackedName === "定期保養" ? `下次 ${MAINTENANCE_INTERVAL_KM.toLocaleString("zh-TW")} km 保養` : "下一次的時間";
+    showFormMessage("info", `${trackedName}沒有填里程，就算不出${nextText}；請填上當時的里程。確定不填，請再按一次儲存。`);
+    saveBtn.dataset.confirmedMileage = "true";
+    return;
+  }
   if (rec.mileage !== null && mileageChanged && maxMileage > 0 && rec.mileage < maxMileage && !saveBtn.dataset.confirmedMileage) {
     showFormMessage("info", "這筆里程低於目前最高里程 " + maxMileage.toLocaleString("zh-TW") + " km；若是在補登舊紀錄，請再按一次儲存。");
     saveBtn.dataset.confirmedMileage = "true";
@@ -4631,6 +4798,12 @@ document.addEventListener("DOMContentLoaded", () => {
     setTheme(getTheme() === "light" ? "dark" : "light");
   });
   document.getElementById("btnHeroFuel").addEventListener("click", () => openFuelLogModal());
+  document.getElementById("btnLogMaintenance").addEventListener("click", () => openMaintenanceRecordModal());
+  document.getElementById("btnUpgradeList").addEventListener("click", showUpgradeCostList);
+  document.getElementById("upgradeCostList").addEventListener("click", event => {
+    const button = event.target.closest("[data-upgrade-record]");
+    if (button) openEditModal(Number(button.dataset.upgradeRecord));
+  });
   window.addEventListener("online", () => requestSync({ reconcile: true }));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
@@ -4693,10 +4866,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("recordForm").addEventListener("submit", handleFormSubmit);
   document.getElementById("formTemplate").addEventListener("change", e => applyRecordTemplate(e.target.value));
   ["formDate", "formMileage", "formCategory", "formCost", "formDetail", "formNote"].forEach(id => {
-    document.getElementById(id).addEventListener("input", () => {
-      clearFormMessage();
-      if (id === "formMileage" || id === "formDate") updateMileageHint();
-    });
+    document.getElementById(id).addEventListener("input", () => handleRecordFormInput(id));
   });
 
   // 目前里程更新

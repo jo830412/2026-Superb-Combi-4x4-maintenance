@@ -343,3 +343,164 @@ test("every CSS custom property in use is defined", () => {
     assert.match(css, new RegExp(`${token}\\s*:`), `${token} is used but never defined`);
   }
 });
+
+test("the next service card offers 記錄保養 once the service is close", () => {
+  const { api, element } = loadApp({ today: TODAY });
+
+  api.setRecords([fuel("2026-09-30", 6200, 50, 1700)]);
+  api.renderMaintenanceHero(api.getMaintenanceSchedule(api.now()));
+  assert.equal(element("btnLogMaintenance").hidden, true);
+
+  api.setRecords([fuel("2026-09-30", 6600, 50, 1700)]);
+  api.renderMaintenanceHero(api.getMaintenanceSchedule(api.now()));
+  assert.equal(element("btnLogMaintenance").hidden, false);
+  assert.match(readProjectFile("app.js"), /getElementById\("btnLogMaintenance"\)\.addEventListener\("click", \(\) => openMaintenanceRecordModal\(\)\)/);
+});
+
+test("記錄保養 fills in a routine service that restarts the 7,500 km countdown", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([fuel("2026-09-30", 6600, 50, 1700)]);
+
+  api.openMaintenanceRecordModal();
+  assert.equal(element("formDate").value, "2026-10-02");
+  assert.equal(element("formMileage").value, "6600");
+  assert.equal(element("formCategory").value, "保養");
+  assert.equal(element("formDetail").value, "7,500 km 定期保養：機油、機油芯、基本檢查");
+  assert.match(element("formMessage").textContent, /對照保養單確認里程/);
+
+  element("formMileage").value = "6620";
+  element("formCost").value = "4500";
+  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.equal(api.getRecords().length, 2);
+  const schedule = api.getMaintenanceSchedule(api.now());
+  assert.equal(schedule.baseMileage, 6620);
+  assert.equal(schedule.dueMileage, 14120);
+});
+
+test("a mileage-tracked record without mileage needs a second tap to save", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([fuel("2026-09-30", 6600, 50, 1700)]);
+  const submitter = createElement();
+
+  api.openAddModal();
+  element("formMileage").value = "";
+  element("formCategory").value = "保養";
+  element("formDetail").value = "定期保養";
+  api.handleFormSubmit({ preventDefault() {}, submitter });
+  assert.equal(api.getRecords().length, 1);
+  assert.match(element("formMessage").textContent, /定期保養沒有填里程，就算不出下次 7,500 km 保養/);
+  api.handleFormSubmit({ preventDefault() {}, submitter });
+  assert.equal(api.getRecords().length, 2);
+
+  api.openAddModal();
+  element("formMileage").value = "";
+  element("formCategory").value = "更換";
+  element("formDetail").value = "輪胎更換 4 條";
+  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.equal(api.getRecords().length, 2);
+  assert.match(element("formMessage").textContent, /輪胎沒有填里程/);
+});
+
+test("a new record starts with the current mileage only while it is dated today", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([
+    { date: "2026-09-01", mileage: 6000, category: "保養", cost: 3000, detail: "機油、機油芯", note: "" },
+    fuel("2026-09-30", 6600, 50, 1700)
+  ]);
+
+  api.openAddModal();
+  assert.equal(element("formMileage").value, "6600");
+
+  element("formDate").value = "2026-08-01";
+  api.handleRecordFormInput("formDate");
+  assert.equal(element("formMileage").value, "");
+  element("formDate").value = "2026-10-02";
+  api.handleRecordFormInput("formDate");
+  assert.equal(element("formMileage").value, "6600");
+
+  // 自己輸入過的里程，改日期也不會被覆蓋。
+  element("formMileage").value = "6650";
+  api.handleRecordFormInput("formMileage");
+  element("formDate").value = "2026-08-01";
+  api.handleRecordFormInput("formDate");
+  assert.equal(element("formMileage").value, "6650");
+
+  // 編輯舊紀錄時保留那筆的里程。
+  api.openEditModal(0);
+  assert.equal(element("formMileage").value, 6000);
+  element("formDate").value = "2026-10-02";
+  api.handleRecordFormInput("formDate");
+  assert.equal(element("formMileage").value, 6000);
+});
+
+test("drafts without a mileage only get the current mileage when dated today", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([fuel("2026-09-30", 6600, 50, 1700)]);
+  const draft = fields => ({ localParser: true, draft: { cost: 1000, detail: "測試", ...fields } });
+
+  api.applyAiServiceDraft(draft({ date: "2026-08-11", category: "改裝升級" }), "8/11 輪框");
+  assert.equal(element("formMileage").value, "");
+  api.applyAiServiceDraft(draft({ date: "2026-10-02", category: "清潔美容" }), "洗車");
+  assert.equal(element("formMileage").value, "6600");
+  api.applyAiServiceDraft(draft({ date: "2026-10-02", category: "保養", mileage: 6620 }), "保養");
+  assert.equal(String(element("formMileage").value), "6620");
+});
+
+function ownershipRecords() {
+  return [
+    { date: "2026-05-28", mileage: 1, category: "保險", cost: 33000, detail: "丙式保險", note: "" },
+    { date: "2026-05-28", mileage: 1, category: "其他", cost: 20000, detail: "前檔隔熱紙", note: "新車隔熱紙加價費用" },
+    { date: "2026-06-05", mileage: 400, category: "清潔美容", cost: 37000, detail: "犀牛皮", note: "" },
+    { date: "2026-08-11", mileage: 3249, category: "改裝升級", cost: 50000, detail: "輪框改裝\n水晶黑", note: "" },
+    { date: "2026-09-30", mileage: 6000, category: "其他", cost: 0, detail: "目前里程更新", note: "" },
+    fuel("2026-09-30", 6000, 60, 3000)
+  ];
+}
+
+test("the overview shows running costs and keeps upgrades and cosmetics separate", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords(ownershipRecords());
+
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getCostSplit())), { running: 36000, fuel: 3000, upgrades: 107000, upgradeCount: 3 });
+  // 清潔美容一律算美容，即使內容提到「保養」。
+  assert.equal(api.isRunningCostRecord({ category: "清潔美容", detail: "鍍膜保養", note: "", cost: 1500 }), false);
+
+  api.updateStats();
+  assert.equal(element("statRecentCost").textContent, "3.6 萬");
+  assert.equal(element("statRecentCostMeta").textContent, "每公里 6.0 元\n其中油錢 0.5 元");
+  assert.equal(element("statUpgradeCost").textContent, "10.7 萬");
+  assert.equal(element("statUpgradeLabel").textContent, "改裝美容 NT$・3 項");
+  assert.equal(element("btnUpgradeList").hidden, false);
+});
+
+test("the cost summary lists upgrades newest first with their total", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords(ownershipRecords());
+
+  api.renderOwnershipCostPanel();
+  assert.match(element("ownershipSummary").textContent, /用車 NT\$ 36,000/);
+  assert.match(element("ownershipSummary").textContent, /改裝美容 NT\$ 107,000/);
+  assert.match(element("ownershipCostGrid").innerHTML, /用車[\s\S]*保養維修[\s\S]*改裝美容[\s\S]*美容與其他/);
+  assert.equal(element("upgradeCostList").hidden, false);
+  assert.equal(element("upgradeCostSummary").textContent, "改裝美容清單 · 3 項 · NT$ 107,000");
+  const order = [...element("upgradeCostItems").innerHTML.matchAll(/data-upgrade-record="(\d+)"/g)].map(match => Number(match[1]));
+  assert.deepEqual(order, [3, 2, 1]);
+  assert.match(element("upgradeCostItems").innerHTML, /<strong>輪框改裝<\/strong>/);
+});
+
+test("the yearly cost chart stacks running costs and upgrades per year", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([
+    { date: "2025-12-01", mileage: 0, category: "改裝升級", cost: 10000, detail: "車標", note: "" },
+    { date: "2026-07-01", mileage: 1000, category: "保養", cost: 3000, detail: "機油", note: "" },
+    fuel("2026-07-14", 1500, 40, 1200),
+    { date: "2026-08-11", mileage: 3249, category: "改裝升級", cost: 50000, detail: "輪框", note: "" }
+  ]);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getYearlyCostSplit())), [
+    { year: "2025", running: 0, upgrades: 10000 },
+    { year: "2026", running: 4200, upgrades: 50000 }
+  ]);
+  api.renderCostLegend();
+  assert.match(element("costLegend").innerHTML, /chart-legend-running[\s\S]*用車[\s\S]*chart-legend-upgrades[\s\S]*改裝美容/);
+});
