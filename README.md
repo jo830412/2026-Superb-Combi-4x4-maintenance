@@ -16,7 +16,6 @@ Static GitHub Pages site for tracking the 2026 Superb Combi 4x4 maintenance reco
 - `app.js`: app logic (records, sync, trackers, forms, charts).
 - `sw.js`, `manifest.webmanifest`, `icons/`: offline cache and home-screen install.
 - `apps-script/Code.js`: Google Sheet sync and the fuel-price proxy used by the static site.
-- `apps-script/ai-record-assistant.gs`: AI record assistant proxy.
 - `tools/dev-server.js`: local preview with a mock API (never touches the real sheet).
 - `tests/`: Node tests; `tests/helpers/` holds the fake browser and fake Google Sheet.
 - `.nojekyll`: keeps GitHub Pages in plain static-file mode.
@@ -99,47 +98,30 @@ clasp update-deployment AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvn
 - JSON backups can be downloaded locally; a full restore downloads a recovery backup first, and duplicate warnings can be overridden with Save Anyway.
 - 加油紀錄在編輯時會開啟完整加油表單，保留公升、油價、折扣、油費與加滿狀態的自動計算；儲存會更新原本那一筆紀錄。
 - 新增加油時沿用上次的油品、折抵與加油站；本週抓過的牌價會直接帶入。里程、金額使用數字鍵盤，輸入里程時顯示「距上次加油 +xxx km」；看起來多打一位或漏登時需再按一次儲存。
-- 新增日期是今天的紀錄時，里程先帶入目前里程（可修改）；日期改成其他天就清空，自己輸入過的里程不會被改掉。照片與 AI 草稿有里程時以草稿為準。
+- 新增日期是今天的紀錄時，里程先帶入目前里程（可修改）；日期改成其他天就清空，自己輸入過的里程不會被改掉。文字快速新增的草稿有里程時以草稿為準。
 - 新增、編輯、刪除後都會顯示「復原」。表單有尚未儲存的內容時，點背景或按 Esc 不會關閉。
 - 手機版頂部只有一列：簡短標題、同步狀態、淺色模式開關與「新增」，下面是分頁。同步狀態只顯示「已同步／同步中／未同步／離線」，點一下可看完整說明並立即重試；桌面版會在旁邊直接顯示細節。
 - 淺色模式（頂部的太陽按鈕）適合戶外陽光下使用，每台裝置各自記住；頂部列在淺色模式下仍維持深色，iPhone 主畫面模式的狀態列文字才看得清楚。文字對比皆達 4.5:1 以上。
 - 手機版總覽依序呈現目前里程與下次保養、最近油耗與近 12 月用車成本、前三項待辦和最近三筆紀錄，其餘統計收在「更多車況」；目前里程下方有「記錄加油」可直接開啟加油表單。
 - 花費分成「用車」（油、保養維修、保險稅費）與「改裝美容」（改裝、配件、美容與其他）。總覽顯示近 12 月用車成本與每公里成本（含其中的油錢）；「更多車況」的改裝美容卡片可開啟分析頁的改裝美容清單；持有成本摘要與年度費用圖也分成這兩組。
 - 字型使用裝置內建字型（iPhone 為蘋方），不必下載網路字型。
-- 紀錄頁先顯示搜尋與篩選，再以「全部紀錄、加油分析、里程」切換內容；全部紀錄不會重複顯示完整加油分析表，紀錄多時每次顯示 50 筆。
-- 加油分析有每次加滿的油耗走勢圖與每公里油費；異常的區間以三角形與「待確認」標示。費用類別圖使用色弱也能分辨的固定配色，圖例直接列出各類金額。
+- 紀錄頁先顯示搜尋與篩選，再以「全部紀錄、加油分析」切換內容（「目前里程更新」也列在全部紀錄裡）；全部紀錄不會重複顯示完整加油分析表，紀錄多時每次顯示 50 筆。
+- 加油分析有每次加滿的油耗走勢圖與每公里油費；異常的區間以三角形與「待確認」標示。
 - 資料檢查會列出里程倒退、油耗異常與可能重複的紀錄，並可直接開啟該筆紀錄。
-- 「新增」入口優先顯示加油與保養／維修，仍可進入里程、照片及文字快速新增。
+- 「新增」入口優先顯示加油與保養／維修，另有更新目前里程與文字快速新增。
 - 有確定日期的待辦可下載本機 `.ics` 行事曆檔，預設在 7 天前與 1 天前提醒；iPhone 仍會顯示事件預覽並要求使用者確認加入。若 Safari 沒有立即開啟，可從下載項目開啟檔案。
-- 圖表與照片辨識的函式庫只在用到時才下載（固定版本並以 SRI 驗證）；照片會先縮小再辨識。
+- 圖表函式庫只在用到時才下載（固定版本並以 SRI 驗證）。
 - 在 iPhone Safari 選「分享 → 加入主畫面」即可像 App 一樣開啟，沒有訊號時也能開啟並記錄。主畫面版本的本機儲存與 Safari 分開，第一次開啟會從雲端載入。
 
 ## Mobile Regression Check
 
-Run the tests, start `node tools\dev-server.js`, and inspect the site at a 375 px viewport. Verify there is no horizontal scrolling, dashboard actions and record subtabs have at least 44 px touch targets, search text survives subtab changes, and all five quick-entry routes still open their original forms. Repeat once at 768 px for tablet layout.
+Run the tests, start `node tools\dev-server.js`, and inspect the site at a 375 px viewport. Verify there is no horizontal scrolling, dashboard actions and record subtabs have at least 44 px touch targets, search text survives subtab changes, and all four quick-entry routes still open their original forms. Repeat once at 768 px for tablet layout.
 
-## AI Record Assistant
+## Text Quick Entry
 
-The website includes an AI 新增 button that calls the existing Apps Script API
-as an OpenAI proxy. The OpenAI API key must stay in Apps Script Script
-Properties, never in the website files or browser storage.
-
-The button first uses local rule-based parsing for common entries such as
-fuel, cleaning, tire, oil, maintenance, tax, and insurance records. This path
-does not call OpenAI or consume API credits. The OpenAI proxy is used only when
-the local parser cannot confidently classify the text, and it only receives the
-20 most recent records as context.
-
-`apps-script/Code.js` already routes the AI actions, and `clasp push` uploads
-both `Code.js` and `ai-record-assistant.gs`. To enable it:
-
-1. In Apps Script, set Script Property `OPENAI_API_KEY`.
-2. Optional: set Script Property `OPENAI_MODEL`; default is `gpt-5.4-mini`.
-3. Update the existing web app deployment (see Deploying Apps Script above).
-
-The frontend first calls `?action=aiStatus`. If the AI proxy is not deployed or
-the key is missing, the AI dialog shows an error and does not send the record
-draft request.
+「文字快速新增」只用本機規則解析加油、洗車美容、輪胎、機油、保養、稅費與保險等常見寫法，
+不連網也不花費任何 API 額度；判斷不出來時會把文字帶進一般表單，類別留空讓使用者選。
+原本的 OpenAI 代理已在 v2026.10.05.4 移除（網站與 Apps Script 都不再呼叫 OpenAI）。
 
 ## Fuel Price Proxy
 

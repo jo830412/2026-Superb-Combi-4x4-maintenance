@@ -161,21 +161,30 @@ test("long record lists render in pages with a show-more button", () => {
   assert.match(html, /顯示更多（還有 70 筆）/);
 });
 
-test("the AI assistant only receives the most recent records", () => {
-  const { api } = loadApp();
-  api.setRecords(Array.from({ length: 40 }, (_, index) => ({
-    date: isoDay(index),
-    mileage: 1000 + index * 10,
-    category: "保養",
-    cost: 0,
-    detail: `紀錄 ${index}`,
-    note: ""
-  })));
+test("text quick-add uses local rules only and hands unknown text to the regular form", async () => {
+  let fetches = 0;
+  const fetchImpl = async () => {
+    fetches += 1;
+    return { ok: true, json: async () => ({}) };
+  };
+  const { api, element } = loadApp({ today: TODAY, fetchImpl });
+  api.setRecords([fuel("2026-09-30", 6600, 50, 1700)]);
 
-  const payload = api.buildAiRequestPayload("洗車 300");
+  api.openTextEntryModal();
+  element("textEntryInput").value = "洗車 300";
+  await api.handleTextEntrySubmit({ preventDefault() {} });
+  assert.equal(element("formCategory").value, "清潔美容");
+  assert.equal(element("formCost").value, 300);
 
-  assert.equal(payload.records.length, 20);
-  assert.equal(payload.records[0].mileage, 1390);
+  // 規則判斷不出來：內容帶進一般表單，類別留空讓使用者自己選。
+  api.openTextEntryModal();
+  element("textEntryInput").value = "後視鏡電動折疊模組";
+  await api.handleTextEntrySubmit({ preventDefault() {} });
+  assert.equal(element("formDetail").value, "後視鏡電動折疊模組");
+  assert.equal(element("formCategory").value, "");
+  assert.equal(element("formMileage").value, "6600");
+  assert.match(element("formMessage").textContent, /需確認：類別、費用、里程/);
+  assert.equal(fetches, 0);
 });
 
 test("a fuel price fetched this week fills in without waiting for the network", async () => {
@@ -325,14 +334,15 @@ test("the sync pill shows a short state and keeps the full message in its title"
   assert.equal(pill.title, "已同步：下午09:59");
 });
 
-test("every record category has a fixed chart colour in both themes", () => {
-  const { api } = loadApp();
-  const categories = ["保養", "維修", "更換", "加油", "保險", "檢驗/稅費", "清潔美容", "改裝升級", "其他"];
-
-  assert.deepEqual([...api.CATEGORY_CHART_ORDER].sort(), [...categories].sort());
-  for (const theme of ["dark", "light"]) {
-    assert.equal(api.CATEGORY_CHART_COLORS[theme].length, categories.length);
-  }
+test("photo OCR, the OpenAI proxy and duplicate stats are gone", () => {
+  const html = readProjectFile("index.html");
+  const more = html.slice(html.indexOf('id="moreVehicleStatus"'), html.indexOf("</details>", html.indexOf('id="moreVehicleStatus"')));
+  assert.deepEqual([...more.matchAll(/class="stat-value" id="(\w+)"/g)].map(match => match[1]),
+    ["statWarrantyStart", "statTotalCost", "statUpgradeCost", "statFuelAdditive", "ownerNextLegal"]);
+  assert.doesNotMatch(html, /btnUpdateMileage|categoryChart|photoModal|data-quick-entry="photo"|AI 紀錄助手/);
+  assert.doesNotMatch(readProjectFile("app.js"), /tesseract|aiRecordAssistant|aiStatus|openai/i);
+  assert.doesNotMatch(readProjectFile("sw.js"), /tesseract/);
+  assert.doesNotMatch(readProjectFile("apps-script/Code.js"), /routeAiRecordAssistant/);
 });
 
 test("every CSS custom property in use is defined", () => {
@@ -438,11 +448,11 @@ test("drafts without a mileage only get the current mileage when dated today", (
   api.setRecords([fuel("2026-09-30", 6600, 50, 1700)]);
   const draft = fields => ({ localParser: true, draft: { cost: 1000, detail: "測試", ...fields } });
 
-  api.applyAiServiceDraft(draft({ date: "2026-08-11", category: "改裝升級" }), "8/11 輪框");
+  api.applyServiceDraft(draft({ date: "2026-08-11", category: "改裝升級" }), "8/11 輪框");
   assert.equal(element("formMileage").value, "");
-  api.applyAiServiceDraft(draft({ date: "2026-10-02", category: "清潔美容" }), "洗車");
+  api.applyServiceDraft(draft({ date: "2026-10-02", category: "清潔美容" }), "洗車");
   assert.equal(element("formMileage").value, "6600");
-  api.applyAiServiceDraft(draft({ date: "2026-10-02", category: "保養", mileage: 6620 }), "保養");
+  api.applyServiceDraft(draft({ date: "2026-10-02", category: "保養", mileage: 6620 }), "保養");
   assert.equal(String(element("formMileage").value), "6620");
 });
 
