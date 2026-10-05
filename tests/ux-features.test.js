@@ -506,3 +506,92 @@ test("the yearly cost chart stacks running costs and upgrades per year", () => {
   api.renderCostLegend();
   assert.match(element("costLegend").innerHTML, /chart-legend-running[\s\S]*用車[\s\S]*chart-legend-upgrades[\s\S]*改裝美容/);
 });
+
+test("the Haldex oil is due after two years or 60,000 km, whichever comes first", () => {
+  const { api } = loadApp({ today: TODAY });
+  const rule = api.CONSUMABLE_RULES.find(item => item.name === "四驅油");
+
+  api.setRecords([fuel("2026-09-30", 6000, 50, 1700)]);
+  const state = api.buildTrackerState(rule);
+  assert.equal(state.status, "ok");
+  assert.equal(state.meta, "下一次約 2028-05-28 或達 60,000 km");
+  const task = api.getCalendarTask({ name: rule.name, ...api.getTrackerCalendarSchedule(rule, state) });
+  assert.equal(task.date, "2028-05-28");
+  assert.equal(task.description, "預計 2028-05-28 或 60,000 公里，以先到者為準");
+
+  // 里程先到時改看里程。
+  api.setRecords([fuel("2026-09-30", 58000, 50, 1700)]);
+  const busy = api.buildTrackerState(rule);
+  assert.equal(busy.status, "soon");
+  assert.equal(busy.value, "剩 2,000 km");
+  assert.match(busy.next, /^最晚 2028-05-28，以先到者為準。/);
+
+  // 換過之後從那一次重新計算。
+  api.setRecords([
+    { date: "2026-09-01", mileage: 5000, category: "保養", cost: 3000, detail: "四驅（Haldex）油更換", note: "" },
+    fuel("2026-09-30", 6000, 50, 1700)
+  ]);
+  assert.equal(api.buildTrackerState(rule).meta, "下一次約 2028-09-01 或達 65,000 km");
+});
+
+test("brake fluid is due three years after delivery and then every two years", () => {
+  const { api } = loadApp({ today: TODAY });
+  const rule = api.CONSUMABLE_RULES.find(item => item.name === "煞車油");
+
+  api.setRecords([fuel("2026-09-30", 6000, 50, 1700)]);
+  assert.equal(api.buildTrackerState(rule).meta, "下一次約 2029-05-28");
+
+  api.setRecords([
+    { date: "2026-08-11", mileage: 3249, category: "保養", cost: 0, detail: "煞車油更換", note: "ZL1 卡鉗安裝時一併更換" },
+    fuel("2026-09-30", 6000, 50, 1700)
+  ]);
+  assert.equal(api.buildTrackerState(rule).meta, "下一次約 2028-08-11");
+  api.assign("nowOverride", "2028-06-01T09:00:00");
+  assert.equal(api.buildTrackerState(rule).status, "ok");
+  api.assign("nowOverride", "2028-06-12T09:00:00");
+  assert.equal(api.buildTrackerState(rule).status, "soon");
+});
+
+test("ZL1 pads count from the caliper install, skip rear pads and restart after a check", () => {
+  const { api } = loadApp({ today: TODAY });
+  const rule = api.CONSUMABLE_RULES.find(item => item.name === "ZL1 來令片");
+  const install = { date: "2026-08-11", mileage: 3249, category: "改裝升級", cost: 71000, detail: "ZL1 卡鉗\n含盤380/鋼質油管/來令片", note: "" };
+  const latestFuel = fuel("2026-09-30", 6238, 50, 1700);
+
+  api.setRecords([install, latestFuel]);
+  const state = api.buildTrackerState(rule);
+  assert.equal(state.value, "剩 27,011 km");
+  assert.equal(state.meta, "上次 3,249 km / 已跑 2,989 km");
+  assert.match(state.next, /剩 3 mm 以下就換/);
+
+  api.setRecords([install, { date: "2026-09-20", mileage: 6000, category: "更換", cost: 3000, detail: "後來令片更換", note: "" }, latestFuel]);
+  assert.equal(api.buildTrackerState(rule).meta, "上次 3,249 km / 已跑 2,989 km");
+
+  api.setRecords([install, { date: "2026-09-25", mileage: 6100, category: "保養", cost: 0, detail: "來令片檢查，剩 9 mm", note: "" }, latestFuel]);
+  assert.equal(api.buildTrackerState(rule).meta, "上次 6,100 km / 已跑 138 km");
+  // 檢查來令片不算一次定期保養。
+  assert.equal(api.getLastMaintenanceRecord(), undefined);
+});
+
+test("spark plugs and the air filter follow km unless their deadline comes first", () => {
+  const { api } = loadApp({ today: TODAY });
+  const rule = name => api.CONSUMABLE_RULES.find(item => item.name === name);
+  api.setRecords([fuel("2026-09-30", 6238, 50, 1700)]);
+
+  const air = api.buildTrackerState(rule("空氣濾芯"));
+  assert.equal(air.value, "剩 23,762 km");
+  assert.match(air.next, /^最晚 2028-05-28，以先到者為準。/);
+  const plugs = api.buildTrackerState(rule("火星塞"));
+  assert.equal(plugs.value, "剩 53,762 km");
+  assert.match(plugs.next, /^最晚 2030-05-28，以先到者為準。/);
+
+  // 新範本會被對應的項目認得，也不會被當成定期保養。
+  const html = readProjectFile("index.html");
+  for (const [key, name] of [["haldex", "四驅油"], ["sparkPlugs", "火星塞"], ["airFilter", "空氣濾芯"], ["brakeFluid", "煞車油"]]) {
+    const template = api.RECORD_TEMPLATES[key];
+    const record = { date: "2026-10-01", mileage: 6238, category: template.category, cost: 1000, detail: template.detail, note: template.note };
+    assert.equal(api.recordMatchesRule(record, rule(name)), true, key);
+    assert.equal(api.isRoutineMaintenanceRecord(record), false, key);
+    assert.match(html, new RegExp(`<option value="${key}">`), key);
+  }
+});
