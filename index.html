@@ -16,7 +16,7 @@
     // 在樣式套用前決定主題，避免開啟時先閃一下深色。
     try { if (localStorage.getItem("newSuperbTheme_v1") === "light") document.documentElement.dataset.theme = "light"; } catch (error) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.10.05.2" />
+  <link rel="stylesheet" href="styles.css?v=2026.10.05.3" />
 </head>
 <body>
   <!-- 頂部導覽列 -->
@@ -28,7 +28,7 @@
           <h1 class="logo-title"><span class="logo-title-full">2026 Superb Combi 4x4 保養維修紀錄</span><span class="logo-title-short">Superb 保養紀錄</span></h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.10.05.2</span>
+            <span class="version-badge" id="appVersion">v2026.10.05.3</span>
           </div>
         </div>
       </div>
@@ -199,7 +199,7 @@
         <button class="btn btn-ghost" id="btnLegacyStashDownload" type="button" hidden>下載升級前的本機資料</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
-      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.05.2</span></p>
+      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.05.3</span></p>
     </details>
   </section>
 
@@ -621,6 +621,6 @@
     <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
   </div>
 
-  <script src="app.js?v=2026.10.05.2" defer></script>
+  <script src="app.js?v=2026.10.05.3" defer></script>
 </body>
 </html>
