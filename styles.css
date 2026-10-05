@@ -56,6 +56,8 @@
   --chart-bar: rgba(88, 166, 255, 0.65);
   --chart-bar-border: #58a6ff;
   --chart-bar-hover: rgba(121, 184, 255, 0.85);
+  --chart-bar-muted: #6e7681;
+  --chart-bar-muted-hover: #8b949e;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
 
@@ -127,6 +129,8 @@
   --chart-bar: rgba(9, 105, 218, 0.7);
   --chart-bar-border: #0969da;
   --chart-bar-hover: rgba(9, 105, 218, 0.85);
+  --chart-bar-muted: #6e7781;
+  --chart-bar-muted-hover: #59636e;
 
   --shadow: 0 1px 3px rgba(31, 35, 40, 0.12);
   --shadow-md: 0 4px 16px rgba(31, 35, 40, 0.12);
@@ -713,7 +717,30 @@ body {
 }
 .ownership-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+}
+.ownership-group { min-width: 0; }
+.ownership-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.ownership-group-head strong {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+.ownership-group-head small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.ownership-group-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 10px;
 }
 .ownership-item {
@@ -739,6 +766,36 @@ body {
   margin-top: 3px;
   color: var(--text-muted);
   font-size: 0.72rem;
+}
+.upgrade-list {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  /* 從總覽跳過來時不要被頂部列擋住 */
+  scroll-margin-top: 140px;
+}
+.upgrade-list > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.upgrade-list-items {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+.upgrade-record strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upgrade-record > span:last-child {
+  color: var(--text-primary);
+  font-weight: 700;
+  white-space: nowrap;
 }
 .data-quality-section {
   max-width: 1200px;
@@ -836,6 +893,25 @@ body {
   font-weight: 600;
   color: var(--text-primary);
 }
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-legend-item i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.chart-legend-running i { background: var(--chart-bar); }
+.chart-legend-upgrades i { background: var(--chart-bar-muted); }
 .chart-wide { grid-column: 1; }
 
 /* ============================================================
@@ -1466,6 +1542,13 @@ body {
   color: var(--text-muted);
   font-size: 0.82rem;
 }
+.dashboard-next-action { margin-top: 12px; }
+.dashboard-metric-meta {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
 .dashboard-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1598,6 +1681,7 @@ body {
 .record-subtab:focus-visible,
 .data-management > summary:focus-visible,
 .more-status > summary:focus-visible,
+.upgrade-list > summary:focus-visible,
 .overview-record:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--focus-ring);
@@ -1785,6 +1869,7 @@ body {
     border-left: 0;
   }
   .dashboard-hero-actions .btn,
+  .dashboard-next-action,
   .section-heading .btn,
   .overview-record,
   .more-status > summary { min-height: 44px; }
