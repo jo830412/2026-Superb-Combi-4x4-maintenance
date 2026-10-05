@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-TW" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -12,9 +12,11 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2358a6ff'/%3E%3Cpath d='M14 38h36l-4-12H18zM18 38v8m28-8v8M21 46h5m12 0h5' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=2026.10.02.1" />
+  <script>
+    // 在樣式套用前決定主題，避免開啟時先閃一下深色。
+    try { if (localStorage.getItem("newSuperbTheme_v1") === "light") document.documentElement.dataset.theme = "light"; } catch (error) {}
+  </script>
+  <link rel="stylesheet" href="styles.css?v=2026.10.02.2" />
 </head>
 <body>
   <!-- 頂部導覽列 -->
@@ -23,16 +25,17 @@
       <div class="header-logo">
         <span class="logo-icon" aria-hidden="true">🚗</span>
         <div>
-          <h1 class="logo-title">2026 Superb Combi 4x4 保養維修紀錄</h1>
+          <h1 class="logo-title"><span class="logo-title-full">2026 Superb Combi 4x4 保養維修紀錄</span><span class="logo-title-short">Superb 保養紀錄</span></h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.10.02.1</span>
+            <span class="version-badge" id="appVersion">v2026.10.02.2</span>
           </div>
         </div>
       </div>
       <div class="header-actions">
-        <button class="sync-status sync-syncing" id="syncStatus" type="button" title="點擊重試同步" aria-live="polite">
-          同步中
+        <button class="sync-status sync-syncing" id="syncStatus" type="button" title="同步中" data-detail="" aria-live="polite">同步中</button>
+        <button class="theme-toggle" id="btnThemeToggle" type="button" aria-pressed="false" aria-label="淺色模式" title="淺色模式（戶外陽光下較好讀）">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"></path></svg>
         </button>
         <button class="btn btn-primary" id="btnQuickEntry" type="button">
           <span>＋</span> 新增
@@ -51,8 +54,11 @@
   <section class="dashboard-hero" id="dashboardHero">
     <div class="dashboard-hero-mileage">
       <span class="dashboard-eyebrow">目前里程</span>
-      <div><strong id="statCurrentMileage">—</strong><span>km</span></div>
-      <button class="btn btn-ghost btn-sm" id="btnUpdateMileage" type="button">更新里程</button>
+      <div class="dashboard-hero-value"><strong id="statCurrentMileage">—</strong><span>km</span></div>
+      <div class="dashboard-hero-actions">
+        <button class="btn btn-primary btn-sm" id="btnHeroFuel" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"></path><path d="M5 21h12M8 7h6v4H8zM16 8h2l2 2v7a2 2 0 0 1-4 0v-3"></path></svg>記錄加油</button>
+        <button class="btn btn-ghost btn-sm" id="btnUpdateMileage" type="button">更新里程</button>
+      </div>
     </div>
     <div class="dashboard-next-service" id="dashboardNextService">
       <span>下次保養（每 7,500 km 或 12 個月）</span>
@@ -186,6 +192,7 @@
         <button class="btn btn-ghost" id="btnLegacyStashDownload" type="button" hidden>下載升級前的本機資料</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
+      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.02.2</span></p>
     </details>
   </section>
 
@@ -603,6 +610,6 @@
     <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
   </div>
 
-  <script src="app.js?v=2026.10.02.1" defer></script>
+  <script src="app.js?v=2026.10.02.2" defer></script>
 </body>
 </html>

@@ -13,7 +13,8 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.02.1";
+const APP_VERSION = "v2026.10.02.2";
+const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
@@ -43,9 +44,6 @@ const CHART_JS_SRI = "sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=";
 const TESSERACT_JS_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
 const TESSERACT_JS_SRI = "sha256-qOKZGNCYsrBuEBK9rv+0rsBEXF1WVHCQI+C9H0QqgOg=";
 const OCR_MAX_IMAGE_SIDE = 2000;
-// 油耗走勢：深色背景上通過色弱與對比檢查的藍／橘；橘色點另以三角形與「待確認」標示。
-const FUEL_TREND_COLOR = "#388bfd";
-const FUEL_TREND_WARNING_COLOR = "#db6d28";
 const VEHICLE_PROFILE = {
   name: "2026 Superb Combi 2.0 TSI 4x4",
   displacementCc: 1984,
@@ -551,15 +549,15 @@ async function pushLocalChanges() {
     if (result.status === "rejected") {
       syncMeta.lastAttempt = null;
       persistSyncMeta();
-      setSyncStatus("error", (result.message || "雲端拒絕這次同步") + " 本機資料仍保留。");
+      setSyncStatus("error", "同步失敗", (result.message || "雲端拒絕這次同步") + " 本機資料仍保留。");
       return false;
     }
 
-    setSyncStatus("error", (result.message || "雲端同步失敗") + " 本機資料仍保留，稍後會自動重試。");
+    setSyncStatus("error", "同步失敗", (result.message || "雲端同步失敗") + " 本機資料仍保留，稍後會自動重試。");
     scheduleSyncRetry();
     return false;
   }
-  setSyncStatus("error", "雲端資料持續變動，稍後會自動重試。本機資料仍保留。");
+  setSyncStatus("error", "同步失敗", "雲端資料持續變動，稍後會自動重試。本機資料仍保留。");
   scheduleSyncRetry();
   return false;
 }
@@ -617,10 +615,10 @@ function resumeDeferredSync() {
 
 function markSyncUnreachable() {
   if (syncMeta?.dirty || syncMeta?.lastAttempt) {
-    setSyncStatus("warn", "未同步・已存本機");
+    setSyncStatus("warn", "未同步", "已存本機，連線後會自動上傳");
     scheduleSyncRetry();
   } else {
-    setSyncStatus("warn", "離線・顯示本機資料");
+    setSyncStatus("warn", "離線", "目前顯示本機資料");
   }
 }
 
@@ -628,7 +626,7 @@ function updateSyncStatusFromMeta() {
   if (syncMeta?.dirty) {
     setSyncStatus("syncing", "同步中");
   } else {
-    setSyncStatus("ok", lastSyncAt ? "已同步 " + formatTime(lastSyncAt) : "已同步");
+    setSyncStatus("ok", "已同步", lastSyncAt ? formatTime(lastSyncAt) : "");
   }
 }
 
@@ -693,12 +691,16 @@ function formatTime(date) {
   return date.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
 }
 
-function setSyncStatus(state, text) {
+// 狀態列只放簡短狀態（手機寬度有限）；詳細說明放在 data-detail，桌面版顯示在旁邊，手機點一下會跳出。
+function setSyncStatus(state, label, detail = "") {
   const el = document.getElementById("syncStatus");
   if (!el) return;
   el.className = "sync-status sync-" + state;
-  el.textContent = text;
-  el.title = state === "error" || state === "warn" ? "本機資料仍保留，點擊可重試同步" : "最後同步狀態";
+  el.textContent = label;
+  el.dataset.detail = detail;
+  const message = detail ? `${label}：${detail}` : label;
+  el.title = state === "error" || state === "warn" ? message + "（點擊可重試同步）" : message;
+  el.setAttribute("aria-label", el.title);
 }
 
 // ============================================================
@@ -1956,6 +1958,63 @@ function openCalendarReminder(task, invoker = null) {
 }
 
 // ============================================================
+// 外觀：深色（預設）／淺色
+// ============================================================
+function getTheme() {
+  return document.documentElement?.dataset?.theme === "light" ? "light" : "dark";
+}
+
+function setTheme(theme) {
+  const root = document.documentElement;
+  if (root?.dataset) root.dataset.theme = theme === "light" ? "light" : "dark";
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, getTheme());
+  } catch (error) {
+    // 無痕模式等情況存不了偏好，只影響下次開啟。
+  }
+  updateThemeToggle();
+  buildCharts();
+}
+
+function updateThemeToggle() {
+  const button = document.getElementById("btnThemeToggle");
+  if (button) button.setAttribute("aria-pressed", String(getTheme() === "light"));
+}
+
+// 圖表顏色跟著 styles.css 的主題變數走（Canvas 無法直接使用 CSS 變數）。
+function getChartTheme() {
+  const root = document.documentElement;
+  const styles = typeof getComputedStyle === "function" && root ? getComputedStyle(root) : null;
+  const read = (name, fallback) => styles?.getPropertyValue(name).trim() || fallback;
+  return {
+    grid: read("--chart-grid", "rgba(48,54,61,0.5)"),
+    tick: read("--chart-tick", "#8b949e"),
+    tooltipBg: read("--chart-tooltip-bg", "#1c2333"),
+    tooltipBorder: read("--chart-tooltip-border", "#30363d"),
+    tooltipTitle: read("--chart-tooltip-title", "#e6edf3"),
+    tooltipBody: read("--chart-tooltip-body", "#c9d1d9"),
+    surface: read("--bg-card", "#161b22"),
+    series: read("--chart-series", "#388bfd"),
+    warning: read("--chart-warning", "#db6d28"),
+    reference: read("--chart-reference", "rgba(139,148,158,0.85)"),
+    bar: read("--chart-bar", "rgba(88,166,255,0.65)"),
+    barBorder: read("--chart-bar-border", "#58a6ff"),
+    barHover: read("--chart-bar-hover", "rgba(121,184,255,0.85)"),
+    font: read("--font-sans", "sans-serif")
+  };
+}
+
+function chartTooltipColors(theme) {
+  return {
+    backgroundColor: theme.tooltipBg,
+    borderColor: theme.tooltipBorder,
+    borderWidth: 1,
+    titleColor: theme.tooltipTitle,
+    bodyColor: theme.tooltipBody
+  };
+}
+
+// ============================================================
 // 對話框：統一開關、Esc、焦點循環與防手滑
 // ============================================================
 const DIALOG_CLOSERS = {
@@ -2508,7 +2567,9 @@ async function ensureChartLibrary() {
   if (typeof Chart !== "undefined") return true;
   try {
     await loadScriptOnce(CHART_JS_URL, CHART_JS_SRI);
-    return typeof Chart !== "undefined";
+    if (typeof Chart === "undefined") return false;
+    Chart.defaults.font.family = getChartTheme().font;
+    return true;
   } catch (error) {
     console.error("圖表元件載入失敗", error);
     return false;
@@ -2544,7 +2605,7 @@ const fuelAverageLinePlugin = {
     const { left, right } = chart.chartArea;
     const ctx = chart.ctx;
     ctx.save();
-    ctx.strokeStyle = "rgba(139,148,158,0.85)";
+    ctx.strokeStyle = options.lineColor;
     ctx.lineWidth = 1;
     ctx.setLineDash([6, 4]);
     ctx.beginPath();
@@ -2552,14 +2613,21 @@ const fuelAverageLinePlugin = {
     ctx.lineTo(right, y);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "#8b949e";
-    ctx.font = "11px 'Noto Sans TC', sans-serif";
+    ctx.fillStyle = options.textColor;
+    ctx.font = `11px ${options.font}`;
     ctx.textAlign = "right";
     ctx.textBaseline = "bottom";
     ctx.fillText(`平均 ${value.toFixed(1)}`, right, y - 3);
     ctx.restore();
   }
 };
+
+function chartAxis(theme, ticks = {}) {
+  return {
+    grid: { color: theme.grid },
+    ticks: { color: theme.tick, font: { size: 11 }, ...ticks }
+  };
+}
 
 function buildFuelTrendChart() {
   const canvas = document.getElementById("fuelTrendChart");
@@ -2571,11 +2639,12 @@ function buildFuelTrendChart() {
   const segments = fuelStats.segments;
   if (!canvas || segments.length < 2) return;
 
+  const theme = getChartTheme();
   const suspiciousKeys = new Set(
     getDataQualityIssues().filter(issue => issue.type === "fuel-outlier").map(issue => issue.key)
   );
   const isSuspicious = segment => suspiciousKeys.has(`fuel|${segment.date}|${segment.mileage}`);
-  const pointColors = segments.map(segment => isSuspicious(segment) ? FUEL_TREND_WARNING_COLOR : FUEL_TREND_COLOR);
+  const pointColors = segments.map(segment => isSuspicious(segment) ? theme.warning : theme.series);
 
   fuelTrendChart = new Chart(canvas, {
     type: "line",
@@ -2584,7 +2653,7 @@ function buildFuelTrendChart() {
       datasets: [{
         label: "油耗 km/L",
         data: segments.map(segment => Number(segment.kmPerLiter.toFixed(2))),
-        borderColor: FUEL_TREND_COLOR,
+        borderColor: theme.series,
         borderWidth: 2,
         borderJoinStyle: "round",
         borderCapStyle: "round",
@@ -2594,7 +2663,7 @@ function buildFuelTrendChart() {
         pointRadius: 4,
         pointHoverRadius: 6,
         pointBorderWidth: 2,
-        pointBorderColor: "#161b22",
+        pointBorderColor: theme.surface,
         pointBackgroundColor: pointColors,
         pointStyle: segments.map(segment => isSuspicious(segment) ? "triangle" : "circle")
       }]
@@ -2607,13 +2676,14 @@ function buildFuelTrendChart() {
       interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { display: false },
-        fuelAverageLine: { value: fuelStats.averageKmPerLiter },
+        fuelAverageLine: {
+          value: fuelStats.averageKmPerLiter,
+          lineColor: theme.reference,
+          textColor: theme.tick,
+          font: theme.font
+        },
         tooltip: {
-          backgroundColor: "#1c2333",
-          borderColor: "#30363d",
-          borderWidth: 1,
-          titleColor: "#e6edf3",
-          bodyColor: "#c9d1d9",
+          ...chartTooltipColors(theme),
           callbacks: {
             title: items => segments[items[0].dataIndex].date,
             label: context => {
@@ -2628,15 +2698,8 @@ function buildFuelTrendChart() {
         }
       },
       scales: {
-        x: {
-          grid: { color: "rgba(48,54,61,0.5)" },
-          ticks: { color: "#8b949e", font: { size: 11 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 }
-        },
-        y: {
-          grace: "15%",
-          grid: { color: "rgba(48,54,61,0.5)" },
-          ticks: { color: "#8b949e", font: { size: 11 }, maxTicksLimit: 6, callback: value => Number(value).toFixed(1) }
-        }
+        x: chartAxis(theme, { maxRotation: 0, autoSkip: true, autoSkipPadding: 12 }),
+        y: { grace: "15%", ...chartAxis(theme, { maxTicksLimit: 6, callback: value => Number(value).toFixed(1) }) }
       }
     }
   });
@@ -2655,6 +2718,7 @@ function buildCostChart() {
 
   const canvas = document.getElementById("costChart");
   if (costChart) { costChart.destroy(); costChart = null; }
+  const theme = getChartTheme();
 
   costChart = new Chart(canvas, {
     type: "bar",
@@ -2663,11 +2727,11 @@ function buildCostChart() {
       datasets: [{
         label: "年度費用 (NT$)",
         data: vals,
-        backgroundColor: "rgba(88,166,255,0.65)",
-        borderColor: "rgba(88,166,255,1)",
-        borderWidth: 2,
-        borderRadius: 6,
-        hoverBackgroundColor: "rgba(121,184,255,0.85)"
+        backgroundColor: theme.bar,
+        hoverBackgroundColor: theme.barHover,
+        borderWidth: 0,
+        borderRadius: 4,
+        maxBarThickness: 24
       }]
     },
     options: {
@@ -2677,56 +2741,63 @@ function buildCostChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: "#1c2333",
-          borderColor: "#30363d",
-          borderWidth: 1,
-          titleColor: "#e6edf3",
-          bodyColor: "#8b949e",
+          ...chartTooltipColors(theme),
           callbacks: {
             label: ctx => "  NT$ " + ctx.raw.toLocaleString("zh-TW")
           }
         }
       },
       scales: {
-        x: {
-          grid: { color: "rgba(48,54,61,0.5)" },
-          ticks: { color: "#8b949e", font: { size: 11 } }
-        },
+        x: chartAxis(theme),
         y: {
           beginAtZero: true,
-          grid: { color: "rgba(48,54,61,0.5)" },
-          ticks: {
-            color: "#8b949e",
-            font: { size: 11 },
+          ...chartAxis(theme, {
+            maxTicksLimit: 6,
+            // 4.5 萬不能四捨五入成「5萬」，否則刻度會重複。
             callback: v => {
-              if (v >= 10000) return (v/10000).toFixed(0) + "萬";
+              if (v >= 10000) return (v / 10000).toFixed(v % 10000 ? 1 : 0) + "萬";
               return v.toLocaleString();
             }
-          }
+          })
         }
       }
     }
   });
 }
 
+// 類別色：dataviz 驗證過的 8 色固定順序（深／淺各一組），依標籤色相對應；「其他」用中性灰。
+// 扇區依此順序排列，相鄰顏色在色弱下也分得開；圖例直接列出金額。
+const CATEGORY_CHART_ORDER = ["更換", "加油", "保險", "檢驗/稅費", "清潔美容", "保養", "改裝升級", "維修", "其他"];
+const CATEGORY_CHART_COLORS = {
+  dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767", "#6e7681"],
+  light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948", "#8c959f"]
+};
+
 function buildCategoryChart() {
-  const catColors = {
-    保養: "#3fb950", 維修: "#f85149", 更換: "#58a6ff",
-    加油: "#f0883e", 保險: "#059669", "檢驗/稅費": "#d29922",
-    清潔美容: "#db2777", 改裝升級: "#bc8cff", 其他: "#484f58"
-  };
   const catMap = {};
   getServiceRecords().forEach(r => {
     const cost = asNumber(r.cost);
     if (!cost) return;
-    catMap[r.category] = (catMap[r.category] || 0) + cost;
+    const category = CATEGORY_CHART_ORDER.includes(r.category) ? r.category : "其他";
+    catMap[category] = (catMap[category] || 0) + cost;
   });
-  const cats = Object.keys(catMap);
-  const vals  = cats.map(c => catMap[c]);
-  const colors = cats.map(c => catColors[c] || "#484f58");
+  const cats = CATEGORY_CHART_ORDER.filter(category => catMap[category]);
+  const vals = cats.map(c => catMap[c]);
+  const palette = CATEGORY_CHART_COLORS[getTheme()];
+  const colors = cats.map(c => palette[CATEGORY_CHART_ORDER.indexOf(c)]);
+  const theme = getChartTheme();
+  const total = vals.reduce((sum, value) => sum + value, 0);
 
   const ctx = document.getElementById("categoryChart").getContext("2d");
   if (catChart) catChart.destroy();
+  const legendLabels = { color: theme.tick, font: { size: 11 }, padding: 12 };
+  const defaultLegendLabels = Chart.overrides?.doughnut?.plugins?.legend?.labels?.generateLabels;
+  if (defaultLegendLabels) {
+    legendLabels.generateLabels = chart => defaultLegendLabels(chart).map(item => ({
+      ...item,
+      text: `${item.text} ${formatCompactCurrency(vals[item.index])}`
+    }));
+  }
 
   catChart = new Chart(ctx, {
     type: "doughnut",
@@ -2734,8 +2805,8 @@ function buildCategoryChart() {
       labels: cats,
       datasets: [{
         data: vals,
-        backgroundColor: colors.map(c => c + "cc"),
-        borderColor: colors,
+        backgroundColor: colors,
+        borderColor: theme.surface,
         borderWidth: 2,
         hoverOffset: 8
       }]
@@ -2747,18 +2818,13 @@ function buildCategoryChart() {
       plugins: {
         legend: {
           position: "bottom",
-          labels: { color: "#8b949e", font: { size: 11 }, padding: 12 }
+          labels: legendLabels
         },
         tooltip: {
-          backgroundColor: "#1c2333",
-          borderColor: "#30363d",
-          borderWidth: 1,
-          titleColor: "#e6edf3",
-          bodyColor: "#8b949e",
+          ...chartTooltipColors(theme),
           callbacks: {
             label: ctx => {
-              const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
-              const pct = ((ctx.raw/total)*100).toFixed(1);
+              const pct = ((ctx.raw / total) * 100).toFixed(1);
               return "NT$ " + ctx.raw.toLocaleString("zh-TW") + " (" + pct + "%)";
             }
           }
@@ -4515,6 +4581,8 @@ function refresh() {
 // ============================================================
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("appVersion").textContent = APP_VERSION;
+  document.getElementById("appVersionDetail").textContent = APP_VERSION;
+  updateThemeToggle();
 
   // 先顯示本機資料，再於背景與雲端同步
   initData();
@@ -4552,7 +4620,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // 同步：點狀態立即重試；連線恢復或回到 App 時自動同步
-  document.getElementById("syncStatus").addEventListener("click", () => requestSync({ reconcile: true }));
+  document.getElementById("syncStatus").addEventListener("click", event => {
+    const status = event.currentTarget;
+    if (/sync-(?:error|warn)/.test(status.className) && status.dataset.detail) {
+      showToast(`${status.textContent}：${status.dataset.detail}`);
+    }
+    requestSync({ reconcile: true });
+  });
+  document.getElementById("btnThemeToggle").addEventListener("click", () => {
+    setTheme(getTheme() === "light" ? "dark" : "light");
+  });
+  document.getElementById("btnHeroFuel").addEventListener("click", () => openFuelLogModal());
   window.addEventListener("online", () => requestSync({ reconcile: true }));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
