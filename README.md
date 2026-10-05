@@ -65,6 +65,19 @@ the connection and `/__offline?on=0` to restore it.
 - 第一次開啟新版時，若這台裝置的本機資料與雲端不同，會改用雲端資料，並把本機版本另存；可在「資料管理」→「下載升級前的本機資料」取回。
 - 發布同步格式變更時，先部署 Apps Script，確認 `?action=syncState` 可回傳資料與版本，再推送網站檔案到 GitHub Pages。
 
+### Deploying Apps Script
+
+```bash
+cd apps-script
+clasp push --force
+clasp create-version "<版本說明>"
+clasp update-deployment AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA -V <新版本號>
+```
+
+- 一定要更新現有的部署（`update-deployment`），不要新建部署：新部署的網址不同，網站會連不到後端。
+- `clasp push` 不加 `--force` 會先詢問是否覆寫 `appsscript.json`；在非互動的終端機裡會直接顯示 "Skipping push." 而沒有上傳，這時建立的版本仍是舊程式。
+- 要退回上一版：`clasp list-versions` 找版本號，再對同一個部署 ID 執行 `clasp update-deployment … -V <舊版本號>`。
+
 ## Maintenance Tracking
 
 - 定期保養每 7,500 km 或 12 個月，以先到者為準；剩 1,000 km 或 30 天內顯示「可安排」，到達即「該保養」。總覽顯示剩餘里程與進度條。
@@ -111,7 +124,7 @@ both `Code.js` and `ai-record-assistant.gs`. To enable it:
 
 1. In Apps Script, set Script Property `OPENAI_API_KEY`.
 2. Optional: set Script Property `OPENAI_MODEL`; default is `gpt-5.4-mini`.
-3. Deploy the Apps Script web app again.
+3. Update the existing web app deployment (see Deploying Apps Script above).
 
 The frontend first calls `?action=aiStatus`. If the AI proxy is not deployed or
 the key is missing, the AI dialog shows an error and does not send the record
