@@ -123,7 +123,7 @@ The fuel log calls `?action=fuelPrice` on the Apps Script API. Keep
 `apps-script/Code.js` deployed with the web app so the static GitHub Pages site
 can read the NPC 全國加油站 official price page without browser CORS failures.
 Apps Script caches the prices for up to 3 hours and never across the Monday
-00:00 (Taipei) price change.
+price changes (Taipei time: NPC prices take effect at 01:00, CPC at 00:00).
 
 ## Notes
 

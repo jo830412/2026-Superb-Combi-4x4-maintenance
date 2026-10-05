@@ -268,10 +268,17 @@ test("fuel prices are cached between requests", () => {
   assert.equal(loaded.fetchCalls.length, 1);
 });
 
-test("the fuel price cache never crosses the Monday price change", () => {
+test("the fuel price cache never crosses the Monday price changes", () => {
   const { api } = loadAppsScript();
 
-  // Sunday 23:00 in Taipei is 15:00 UTC.
+  // Sunday 23:00 in Taipei is 15:00 UTC: expire at CPC's Monday 00:00 change.
   assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-04T15:00:00Z")), 3600);
+  // Monday 00:00 and 00:30: the NPC page still shows last week's price until 01:00.
+  assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-04T16:00:00Z")), 3600);
+  assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-04T16:30:00Z")), 1800);
+  // From Monday 01:00 the next change is a week away, so the 3-hour cap applies.
+  assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-04T17:00:00Z")), 3 * 60 * 60);
   assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-05T01:00:00Z")), 3 * 60 * 60);
+  // Late Sunday after a week of caching still stops at Monday 00:00.
+  assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-11T14:00:00Z")), 2 * 60 * 60);
 });

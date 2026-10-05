@@ -414,15 +414,19 @@ function writeFuelPriceCache_(prices, now) {
   }
 }
 
-// 牌價每週一 00:00（台灣時間）調整；快取最多 3 小時，且不跨過下一次調價。
+// 全國加油站牌價在週一 01:00（台灣時間）實施，中油則是 00:00。
+// 快取最多 3 小時，且不跨過這兩個時間點，避免把調價前的牌價留到調價後。
 function getFuelPriceCacheSeconds_(now) {
+  const hourMs = 60 * 60 * 1000;
   const taipei = new Date(now.getTime() + TAIPEI_OFFSET_MS);
-  const daysUntilMonday = (8 - taipei.getUTCDay()) % 7 || 7;
-  const nextChange = Date.UTC(
+  const daysUntilMonday = (8 - taipei.getUTCDay()) % 7;
+  const monday = Date.UTC(
     taipei.getUTCFullYear(),
     taipei.getUTCMonth(),
     taipei.getUTCDate() + daysUntilMonday
   ) - TAIPEI_OFFSET_MS;
+  const nextChange = [monday, monday + hourMs, monday + 7 * 24 * hourMs]
+    .find(time => time > now.getTime());
   const secondsUntilChange = Math.floor((nextChange - now.getTime()) / 1000);
   return Math.max(0, Math.min(FUEL_PRICE_CACHE_MAX_SECONDS, secondsUntilChange));
 }
