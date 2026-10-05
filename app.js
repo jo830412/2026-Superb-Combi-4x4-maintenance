@@ -13,7 +13,7 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.05.2";
+const APP_VERSION = "v2026.10.05.3";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
@@ -130,6 +130,26 @@ const RECORD_TEMPLATES = {
     detail: "煞車皮、煞車油、煞車系統檢查",
     note: ""
   },
+  brakeFluid: {
+    category: "保養",
+    detail: "煞車油更換",
+    note: ""
+  },
+  haldex: {
+    category: "保養",
+    detail: "四驅（Haldex）油更換",
+    note: ""
+  },
+  sparkPlugs: {
+    category: "更換",
+    detail: "火星塞更換（4 顆）",
+    note: ""
+  },
+  airFilter: {
+    category: "更換",
+    detail: "空氣濾芯更換",
+    note: ""
+  },
   transmission: {
     category: "保養",
     detail: "變速箱油、濾網、油底殼檢查",
@@ -189,13 +209,20 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8500) {
 
 // 只是檢查、補充、換位等，不算更換；category 限制避免「保險桿」被當成保險。
 const OIL_CHECK_PHRASES = ["檢查機油", "機油檢查", "補機油", "機油補充", "添加機油", "機油添加", "機油尺", "機油燈", "機油壓力"];
+// 同時有里程與月數的項目以先到者為準。間隔依原廠與保養資料整理，見 README「Maintenance Tracking」。
 const CONSUMABLE_RULES = [
   { name: "定期保養", icon: "🛢", maintenance: true },
   { name: "變速箱油", icon: "⚙", terms: ["變速箱油", "閥體油"], categories: SERVICE_CATEGORIES, ignore: ["檢查變速箱油", "變速箱油檢查"], soonKm: 40000, dueKm: 60000 },
-  { name: "輪胎", icon: "輪", terms: ["輪胎"], categories: SERVICE_CATEGORIES, ignore: ["輪胎換位", "輪胎檢查", "檢查輪胎", "輪胎平衡", "輪胎打氣", "輪胎胎壓"], soonKm: 40000, dueKm: 50000 },
-  { name: "電瓶", icon: "🔋", terms: ["電瓶"], categories: SERVICE_CATEGORIES, ignore: ["電瓶檢查", "檢查電瓶", "電瓶測試", "測電瓶", "電瓶充電"], soonMonths: 36, dueMonths: 48 },
-  { name: "煞車油", icon: "制", terms: ["煞車油"], categories: SERVICE_CATEGORIES, ignore: ["檢查煞車油", "煞車油檢查"], soonMonths: 24, dueMonths: 36 },
+  { name: "四驅油", icon: "驅", terms: ["四驅油", "四驅離合器油", "四輪傳動油", "Haldex", "haldex"], categories: SERVICE_CATEGORIES, ignore: ["檢查四驅油", "四驅油檢查"], soonKm: 55000, dueKm: 60000, soonMonths: 22, dueMonths: 24 },
+  { name: "火星塞", icon: "⚡", terms: ["火星塞"], categories: SERVICE_CATEGORIES, ignore: ["檢查火星塞", "火星塞檢查"], soonKm: 55000, dueKm: 60000, soonMonths: 45, dueMonths: 48 },
+  { name: "空氣濾芯", icon: "🌀", terms: ["空氣濾芯", "空氣濾清器", "引擎空氣濾網", "空濾"], categories: SERVICE_CATEGORIES, ignore: ["檢查空氣濾芯", "空氣濾芯檢查", "冷氣空濾"], soonKm: 25000, dueKm: 30000, soonMonths: 22, dueMonths: 24 },
   { name: "冷氣濾網", icon: "❄", terms: ["冷氣濾網", "冷氣濾心"], categories: SERVICE_CATEGORIES, ignore: ["檢查冷氣濾網", "冷氣濾網檢查"], soonKm: 10000, dueKm: 15000 },
+  { name: "輪胎", icon: "輪", terms: ["輪胎"], categories: SERVICE_CATEGORIES, ignore: ["輪胎換位", "輪胎檢查", "檢查輪胎", "輪胎平衡", "輪胎打氣", "輪胎胎壓"], soonKm: 40000, dueKm: 50000 },
+  // 前輪 ZL1 卡鉗的來令片沒有固定週期：約 30,000 km 檢查厚度，量過可記「來令片檢查」重新起算；後輪另計。
+  { name: "ZL1 來令片", icon: "煞", terms: ["來令片", "煞車皮", "煞車片"], categories: SERVICE_CATEGORIES, ignore: ["後來令片", "後輪來令片", "後煞車皮", "後煞車片"], soonKm: 25000, dueKm: 30000, note: "依磨耗更換，剩 3 mm 以下就換；量過厚度可記一筆「來令片檢查」重新計算。" },
+  // 煞車油：新車第一次 3 年，之後每 2 年。
+  { name: "煞車油", icon: "制", terms: ["煞車油"], categories: SERVICE_CATEGORIES, ignore: ["檢查煞車油", "煞車油檢查"], soonMonths: 22, dueMonths: 24, firstDueFrom: VEHICLE_DELIVERY_DATE, firstDueMonths: 36, firstDueMeta: "新車第一次 3 年，之後每 2 年" },
+  { name: "電瓶", icon: "🔋", terms: ["電瓶"], categories: SERVICE_CATEGORIES, ignore: ["電瓶檢查", "檢查電瓶", "電瓶測試", "測電瓶", "電瓶充電"], soonMonths: 36, dueMonths: 48 },
   { name: "保險", icon: "🛡", terms: ["保險", "強制險", "任意險", "續保", "產險"], matchCategory: "保險", categories: ["保險", "其他"], ignore: ["保險桿", "保險絲"], soonMonths: 11, dueMonths: 12 },
   {
     name: "驗車",
@@ -1584,43 +1611,83 @@ function buildDateTrackerState({ dueDate, soonDate, today, meta, next }) {
 function buildTrackerState(rule, today = now()) {
   if (rule.maintenance) return buildMaintenanceTrackerState(getMaintenanceSchedule(today));
   const latest = getLatestMatchingRecord(rule);
+  const hasMonthLimit = rule.dueMonths || (!latest && rule.firstDueMonths);
+  if (!rule.dueKm) return buildMonthTrackerState(rule, latest, today);
+  if (!hasMonthLimit) return buildKmTrackerState(rule, latest);
+  return combineTrackerStates(buildKmTrackerState(rule, latest), buildMonthTrackerState(rule, latest, today));
+}
 
+const TRACKER_STATUS_RANK = { missing: 0, ok: 1, soon: 2, due: 3 };
+
+// 里程或月數先到者為準：顯示比較急的那一項；一樣急時顯示會先到的那一項，另一項放在補充說明。
+function combineTrackerStates(kmState, monthState) {
+  if (kmState.status === "missing") {
+    return { ...monthState, next: [monthState.next, "最近紀錄缺少里程，先只看時間。"].filter(Boolean).join("；") };
+  }
+  if (monthState.status === "missing") return kmState;
+  const projectedDate = projectMileageDate(kmState.dueMileage);
+  const dueDate = [projectedDate, monthState.dueDate].filter(Boolean).sort((a, b) => a - b)[0];
+  const kmRank = TRACKER_STATUS_RANK[kmState.status];
+  const monthRank = TRACKER_STATUS_RANK[monthState.status];
+  const kmFirst = kmRank === monthRank ? !projectedDate || projectedDate <= monthState.dueDate : kmRank > monthRank;
+  if (kmFirst) {
+    return {
+      ...kmState,
+      next: [`最晚 ${formatDateYMD(monthState.dueDate)}，以先到者為準。`, kmState.next].filter(Boolean).join(""),
+      dueDate,
+      dueMileage: kmState.dueMileage
+    };
+  }
+  return {
+    ...monthState,
+    meta: `${monthState.meta} 或達 ${kmState.dueMileage.toLocaleString("zh-TW")} km`,
+    dueDate,
+    dueMileage: kmState.dueMileage
+  };
+}
+
+// 依里程：從上次紀錄的里程算起，沒有紀錄時從交車里程算起。
+function buildKmTrackerState(rule, latest) {
+  const baseMileage = latest ? Number(latest.mileage) : getVehicleBaselineMileage();
+  if (latest && (!Number.isFinite(baseMileage) || baseMileage <= 0)) {
+    return {
+      status: "missing",
+      value: "缺里程",
+      meta: latest.date ? `最近 ${latest.date}` : "最近紀錄缺少里程"
+    };
+  }
+  const usedKm = Math.max(getEffectiveCurrentMileage() - baseMileage, 0);
+  const meta = latest
+    ? `上次 ${baseMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
+    : `${getBaselineMetaPrefix()} / 已跑 ${usedKm.toLocaleString("zh-TW")} km`;
+  const next = [latest ? "" : "尚無更換紀錄，先以新車交車基準推估。", rule.note].filter(Boolean).join("");
+  const dueMileage = baseMileage + rule.dueKm;
+  if (usedKm >= rule.dueKm) return { status: "due", value: "該處理", meta, next, dueMileage };
+  return {
+    status: usedKm >= rule.soonKm ? "soon" : "ok",
+    value: `剩 ${(rule.dueKm - usedKm).toLocaleString("zh-TW")} km`,
+    meta,
+    next,
+    dueMileage
+  };
+}
+
+// 依月數：從上次紀錄的日期算起；沒有紀錄時用第一次的期限（驗車、煞車油）或交車日。
+function buildMonthTrackerState(rule, latest, today) {
   if (!latest && rule.firstDueMonths) {
     const startDate = parseDate(rule.firstDueFrom);
     if (!startDate) {
       return { status: "missing", value: "缺日期", meta: "缺少新車起算日" };
     }
     const dueDate = addMonths(startDate, rule.firstDueMonths);
+    const leadMonths = rule.dueMonths && rule.soonMonths ? rule.dueMonths - rule.soonMonths : 1;
     return buildDateTrackerState({
       dueDate,
-      soonDate: addMonths(dueDate, -1),
+      soonDate: addMonths(dueDate, -leadMonths),
       today,
       meta: `下一次約 ${formatDateYMD(dueDate)}`,
       next: rule.firstDueMeta || ""
     });
-  }
-
-  if (rule.dueKm) {
-    const baseMileage = latest ? Number(latest.mileage) : getVehicleBaselineMileage();
-    if (latest && (!Number.isFinite(baseMileage) || baseMileage <= 0)) {
-      return {
-        status: "missing",
-        value: "缺里程",
-        meta: latest.date ? `最近 ${latest.date}` : "最近紀錄缺少里程"
-      };
-    }
-    const usedKm = Math.max(getEffectiveCurrentMileage() - baseMileage, 0);
-    const meta = latest
-      ? `上次 ${baseMileage.toLocaleString("zh-TW")} km / 已跑 ${usedKm.toLocaleString("zh-TW")} km`
-      : `${getBaselineMetaPrefix()} / 已跑 ${usedKm.toLocaleString("zh-TW")} km`;
-    const next = latest ? "" : "尚無更換紀錄，先以新車交車基準推估。";
-    if (usedKm >= rule.dueKm) return { status: "due", value: "該處理", meta, next };
-    return {
-      status: usedKm >= rule.soonKm ? "soon" : "ok",
-      value: `剩 ${(rule.dueKm - usedKm).toLocaleString("zh-TW")} km`,
-      meta,
-      next
-    };
   }
 
   const baseDate = latest ? parseDate(latest.date) : getVehicleBaselineDate();
@@ -1642,7 +1709,7 @@ function buildTrackerState(rule, today = now()) {
 
 // 定期保養：保養類別（排除換位、定位、變速箱等專項），或提到換機油的保養／更換／維修紀錄。
 const ROUTINE_SERVICE_PATTERN = /定期保養|機油|小保養|大保養|[0-9][0-9,]*\s*(?:公里|km|k)\s*保養/i;
-const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|變速箱|DSG|冷氣|空調|電瓶|煞車|雨刷|燈泡|水箱|火星塞/i;
+const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|變速箱|DSG|冷氣|空調|電瓶|煞車|來令片|雨刷|燈泡|水箱|火星塞|空氣濾芯|空濾|四驅|Haldex/i;
 
 function isRoutineMaintenanceRecord(record) {
   if (!record || isMileageUpdateRecord(record)) return false;
@@ -1936,7 +2003,11 @@ function getWarrantyState(today = now()) {
 // 依里程追蹤的項目：用開車速度推估日期，才能加入行事曆。
 function getTrackerCalendarSchedule(rule, state = buildTrackerState(rule)) {
   if (rule.maintenance) return {};
-  if (state.dueDate) return { dueDate: state.dueDate, calendarType: "vehicle-reminder" };
+  if (state.dueDate) {
+    return Number.isFinite(state.dueMileage)
+      ? { dueDate: state.dueDate, dueMileage: state.dueMileage, calendarType: "vehicle-reminder" }
+      : { dueDate: state.dueDate, calendarType: "vehicle-reminder" };
+  }
   if (!rule.dueKm) return {};
   const latest = getLatestMatchingRecord(rule);
   const baseMileage = latest ? Number(latest.mileage) : getVehicleBaselineMileage();
