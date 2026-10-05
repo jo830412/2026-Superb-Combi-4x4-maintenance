@@ -258,6 +258,83 @@ test("the service worker only handles site files and pinned CDN libraries", () =
   assert.equal(handled("https://script.google.com/macros/s/abc/exec?action=syncState"), false);
 });
 
+test("the light theme toggle applies, remembers and reports its state", () => {
+  const localStore = new Map();
+  const { api, element, context } = loadApp({ localStore });
+  const attributes = {};
+  element("btnThemeToggle").setAttribute = (name, value) => { attributes[name] = value; };
+
+  assert.equal(api.getTheme(), "dark");
+  api.setTheme("light");
+
+  assert.equal(context.document.documentElement.dataset.theme, "light");
+  assert.equal(localStore.get("newSuperbTheme_v1"), "light");
+  assert.equal(attributes["aria-pressed"], "true");
+  api.setTheme("dark");
+  assert.equal(attributes["aria-pressed"], "false");
+});
+
+test("the stored theme is applied before the stylesheet loads", () => {
+  const html = readProjectFile("index.html");
+  const themeScript = html.indexOf("localStorage.getItem(\"newSuperbTheme_v1\")");
+
+  assert.ok(themeScript > 0 && themeScript < html.indexOf("rel=\"stylesheet\""));
+  assert.match(readProjectFile("app.js"), /const THEME_STORAGE_KEY = "newSuperbTheme_v1";/);
+});
+
+test("the light theme overrides every colour token of the dark theme", () => {
+  const css = readProjectFile("styles.css");
+  const block = selector => {
+    const start = css.indexOf(`${selector} {`);
+    return css.slice(start, css.indexOf("}", start));
+  };
+  const tokens = text => new Set([...text.matchAll(/(--[\w-]+)\s*:/g)].map(match => match[1]));
+  const dark = tokens(block(":root"));
+  const light = tokens(block(":root[data-theme=\"light\"]"));
+  const themeIndependent = new Set(["--radius-sm", "--radius-md", "--radius-lg", "--radius-xl", "--transition", "--font-sans", "--header-bg"]);
+
+  assert.ok(dark.size > 40);
+  for (const token of dark) {
+    if (!themeIndependent.has(token)) assert.ok(light.has(token), `${token} has no light-theme value`);
+  }
+});
+
+test("the page uses the system font stack instead of downloading web fonts", () => {
+  assert.doesNotMatch(readProjectFile("index.html"), /fonts\.googleapis\.com/);
+  assert.match(readProjectFile("styles.css"), /body \{\s+font-family: var\(--font-sans\);/);
+});
+
+test("the overview offers a one-tap fuel entry", () => {
+  const html = readProjectFile("index.html");
+  const hero = html.slice(html.indexOf("id=\"dashboardHero\""), html.indexOf("id=\"dashboardMetrics\""));
+
+  assert.match(hero, /id="btnHeroFuel"[^>]*>[\s\S]*記錄加油/);
+  assert.match(readProjectFile("app.js"), /getElementById\("btnHeroFuel"\)\.addEventListener\("click", \(\) => openFuelLogModal\(\)\)/);
+});
+
+test("the sync pill shows a short state and keeps the full message in its title", () => {
+  const { api, element } = loadApp();
+  const pill = element("syncStatus");
+
+  api.setSyncStatus("warn", "未同步", "已存本機，連線後會自動上傳");
+  assert.equal(pill.textContent, "未同步");
+  assert.equal(pill.dataset.detail, "已存本機，連線後會自動上傳");
+  assert.equal(pill.title, "未同步：已存本機，連線後會自動上傳（點擊可重試同步）");
+
+  api.setSyncStatus("ok", "已同步", "下午09:59");
+  assert.equal(pill.title, "已同步：下午09:59");
+});
+
+test("every record category has a fixed chart colour in both themes", () => {
+  const { api } = loadApp();
+  const categories = ["保養", "維修", "更換", "加油", "保險", "檢驗/稅費", "清潔美容", "改裝升級", "其他"];
+
+  assert.deepEqual([...api.CATEGORY_CHART_ORDER].sort(), [...categories].sort());
+  for (const theme of ["dark", "light"]) {
+    assert.equal(api.CATEGORY_CHART_COLORS[theme].length, categories.length);
+  }
+});
+
 test("every CSS custom property in use is defined", () => {
   const css = readProjectFile("styles.css");
   const used = new Set([...css.matchAll(/var\((--[\w-]+)/g)].map(match => match[1]));

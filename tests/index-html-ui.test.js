@@ -581,8 +581,9 @@ test("a rejected write keeps local data marked as unsynced", async () => {
 
   await api.saveRecords([]);
 
-  assert.match(element("syncStatus").textContent, /安全保護已阻止/);
-  assert.match(element("syncStatus").textContent, /本機資料仍保留/);
+  assert.equal(element("syncStatus").textContent, "同步失敗");
+  assert.match(element("syncStatus").title, /安全保護已阻止/);
+  assert.match(element("syncStatus").dataset.detail, /本機資料仍保留/);
   assert.equal(api.getSyncMeta().dirty, true);
 });
 
@@ -836,7 +837,7 @@ test("the release documents sync conflicts server backups and deployment order",
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
   const version = app.match(/const APP_VERSION = "v([\d.]+)"/)[1];
-  assert.equal(version, "2026.10.02.1");
+  assert.equal(version, "2026.10.02.2");
   // Asset URLs carry the release version so phones fetch the new files after a deploy.
   assert.deepEqual([...html.matchAll(/(?:href|src)="(?:styles\.css|app\.js)\?v=([\d.]+)"/g)].map(match => match[1]), [version, version]);
   assert.match(html, new RegExp(`id="appVersion">v${version.replace(/\./g, "\\.")}<`));

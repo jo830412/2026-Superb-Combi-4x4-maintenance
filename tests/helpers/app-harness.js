@@ -84,6 +84,7 @@ function loadApp({ fetchImpl, urlApi, createElementImpl, localStore = new Map(),
     document: {
       activeElement: null,
       visibilityState: "visible",
+      documentElement: { dataset: { theme: "dark" } },
       addEventListener() {},
       createElement(tag) { return createElementImpl ? createElementImpl(tag) : createElement(); },
       getElementById: getElement,
