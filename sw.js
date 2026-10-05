@@ -1,12 +1,12 @@
 // 讓 App 在沒有訊號時也能開啟。
 // 同源檔案先走網路，3 秒內沒回應就先用快取（之後仍會更新快取）；圖表與 OCR 函式庫優先用快取。
 // Apps Script API 與字型不經過快取。
-const CACHE_NAME = "superb-maintenance-v2026.10.05.3";
+const CACHE_NAME = "superb-maintenance-v2026.10.05.4";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=2026.10.05.3",
-  "./app.js?v=2026.10.05.3",
+  "./styles.css?v=2026.10.05.4",
+  "./app.js?v=2026.10.05.4",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/apple-touch-icon.png"

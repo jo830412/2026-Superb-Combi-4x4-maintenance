@@ -830,7 +830,7 @@ test("the release documents sync conflicts server backups and deployment order",
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
   const version = app.match(/const APP_VERSION = "v([\d.]+)"/)[1];
-  assert.equal(version, "2026.10.05.3");
+  assert.equal(version, "2026.10.05.4");
   // Asset URLs carry the release version so phones fetch the new files after a deploy.
   assert.deepEqual([...html.matchAll(/(?:href|src)="(?:styles\.css|app\.js)\?v=([\d.]+)"/g)].map(match => match[1]), [version, version]);
   assert.match(html, new RegExp(`id="appVersion">v${version.replace(/\./g, "\\.")}<`));
