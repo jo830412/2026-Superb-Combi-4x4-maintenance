@@ -210,8 +210,6 @@ function loadAppsScript(initialRecords = [], { failBackupInsert = false, maxRows
         };
       }
     },
-    routeAiRecordAssistantGet_() { return null; },
-    routeAiRecordAssistantPost_() { return null; },
     UrlFetchApp: {
       fetch(url) {
         fetchCalls.push(url);

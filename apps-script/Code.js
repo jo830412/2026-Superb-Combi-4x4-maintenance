@@ -18,9 +18,6 @@ const FUEL_PRICE_CACHE_MAX_SECONDS = 3 * 60 * 60;
 const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 function doGet(e) {
-  const aiResponse = routeAiRecordAssistantGet_(e);
-  if (aiResponse) return aiResponse;
-
   const fuelPriceResponse = routeFuelPriceGet_(e);
   if (fuelPriceResponse) return fuelPriceResponse;
 
@@ -68,9 +65,6 @@ function readRecords_(sheet) {
 }
 
 function doPost(e) {
-  const aiResponse = routeAiRecordAssistantPost_(e);
-  if (aiResponse) return aiResponse;
-
   const lock = LockService.getScriptLock();
 
   try {

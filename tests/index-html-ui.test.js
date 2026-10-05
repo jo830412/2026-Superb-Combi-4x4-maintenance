@@ -86,7 +86,7 @@ test("an unchanged fuel edit excludes itself from duplicate warnings", () => {
   assert.equal(api.findLikelyDuplicates(original, { excludeIndex: 0 }).length, 0);
 });
 
-test("the mobile UI provides view tabs and five quick-entry routes", () => {
+test("the mobile UI provides view tabs and four quick-entry routes", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
 
@@ -94,9 +94,7 @@ test("the mobile UI provides view tabs and five quick-entry routes", () => {
   assert.match(html, /id="overviewView"/);
   assert.match(html, /id="recordsView"/);
   assert.match(html, /id="analysisView"/);
-  for (const action of ["fuel", "service", "mileage", "photo", "text"]) {
-    assert.match(html, new RegExp(`data-quick-entry="${action}"`));
-  }
+  assert.deepEqual([...html.matchAll(/data-quick-entry="(\w+)"/g)].map(match => match[1]), ["fuel", "service", "mileage", "text"]);
 });
 
 test("the static site provides an inline favicon", () => {
@@ -234,9 +232,7 @@ test("record subtabs keep fuel analysis out of the all-records panel", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 
   assert.ok(html.indexOf('id="searchInput"') < html.indexOf('id="recordSubtabs"'));
-  assert.match(html, /data-records-subtab="all"[^>]*>全部紀錄/);
-  assert.match(html, /data-records-subtab="fuel"[^>]*>加油分析/);
-  assert.match(html, /data-records-subtab="mileage"[^>]*>里程/);
+  assert.deepEqual([...html.matchAll(/data-records-subtab="(\w+)"[^>]*>([^<]+)</g)].map(match => match.slice(1)), [["all", "全部紀錄"], ["fuel", "加油分析"]]);
   assert.match(html, /id="fuelAnalysisPanel"[^>]*hidden/);
 });
 
@@ -245,7 +241,7 @@ test("the hidden attribute always removes inactive UI from layout", () => {
   assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
 });
 
-test("the mileage subtab filters to mileage status records without clearing search", () => {
+test("mileage updates stay in the all-records list and old subtab names fall back to it", () => {
   const { api, element } = loadApp();
   api.setRecords([fuelRecord(), {
     date: "2026-08-07",
@@ -257,13 +253,10 @@ test("the mileage subtab filters to mileage status records without clearing sear
   }]);
   element("searchInput").value = "";
 
-  assert.equal(typeof api.setRecordsSubtab, "function");
   api.setRecordsSubtab("mileage");
-  assert.equal(api.getActiveRecordsSubtab(), "mileage");
-  assert.equal(api.getFilteredRecords().length, 1);
-  assert.equal(api.getFilteredRecords()[0].detail, "目前里程更新");
-  assert.equal(element("searchInput").value, "");
-  assert.equal(element("filterSummary").textContent, "顯示 1 筆里程紀錄");
+  assert.equal(api.getActiveRecordsSubtab(), "all");
+  assert.equal(api.getFilteredRecords().length, 2);
+  assert.match(element("filterSummary").textContent, /另有 1 筆里程狀態/);
 });
 
 test("bottom sheets trap tab focus and quick entry returns focus to its invoker", () => {
@@ -306,7 +299,7 @@ test("quick entry prioritizes fuel and service with accessible mobile controls",
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 
   assert.match(html, /class="quick-entry-primary"[\s\S]*data-quick-entry="fuel"[\s\S]*data-quick-entry="service"/);
-  assert.match(html, /class="quick-entry-secondary"[\s\S]*data-quick-entry="mileage"[\s\S]*data-quick-entry="photo"[\s\S]*data-quick-entry="text"/);
+  assert.match(html, /class="quick-entry-secondary"[\s\S]*data-quick-entry="mileage"[\s\S]*data-quick-entry="text"/);
   const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
   assert.match(css, /\.quick-entry-btn\s*\{[^}]*min-height:\s*44px/s);
   assert.match(html, /id="quickEntryModal"[^>]*role="dialog"[^>]*aria-modal="true"/);
@@ -825,7 +818,7 @@ test("the README documents focused mobile and iPhone calendar verification", () 
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 
   assert.match(readme, /375 px/);
-  assert.match(readme, /全部紀錄.*加油分析.*里程/);
+  assert.match(readme, /「全部紀錄、加油分析」切換內容/);
   assert.match(readme, /\.ics/);
   assert.match(readme, /7 天前.*1 天前/);
   assert.match(readme, /iPhone.*確認/);

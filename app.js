@@ -37,13 +37,9 @@ const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v2";
 const FUEL_PRICE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const FUEL_PRICE_RECHECK_MS = 60 * 60 * 1000;
-const AI_CONTEXT_RECORD_LIMIT = 20;
 const RECORDS_PAGE_SIZE = 50;
 const CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js";
 const CHART_JS_SRI = "sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=";
-const TESSERACT_JS_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
-const TESSERACT_JS_SRI = "sha256-qOKZGNCYsrBuEBK9rv+0rsBEXF1WVHCQI+C9H0QqgOg=";
-const OCR_MAX_IMAGE_SIDE = 2000;
 const VEHICLE_PROFILE = {
   name: "2026 Superb Combi 2.0 TSI 4x4",
   displacementCc: 1984,
@@ -79,7 +75,6 @@ let currentYear = "";
 let recordsVisibleLimit = RECORDS_PAGE_SIZE;
 let deleteTargetIndex = -1;
 let costChart = null;
-let catChart = null;
 let fuelTrendChart = null;
 let lastSyncAt = null;
 let lastCloudCheckAt = 0;
@@ -89,10 +84,6 @@ let syncRequest = null;
 let syncRetryTimer = null;
 let syncRetryDelayMs = SYNC_RETRY_MIN_MS;
 let syncDeferredForEditor = false;
-let photoMode = "fuel";
-let photoParsed = null;
-let photoPreviewUrl = "";
-let aiBackendReady = null;
 let fuelEditIndex = -1;
 let activeView = "overview";
 let activeRecordsSubtab = "all";
@@ -759,24 +750,6 @@ function parseDecimalInput(value) {
   const normalized = String(value ?? "").trim().replace(/[，,．]/g, ".");
   return normalized ? Number(normalized) : NaN;
 }
-function normalizeOcrNumber(value) {
-  if (value == null) return NaN;
-  const normalized = String(value)
-    .replace(/[ＯOo]/g, "0")
-    .replace(/[Il|]/g, "1")
-    .replace(/[，,]/g, "")
-    .replace("．", ".")
-    .trim();
-  return normalized ? Number(normalized) : NaN;
-}
-function normalizeOcrText(text) {
-  return String(text || "")
-    .replace(/\r/g, "\n")
-    .replace(/[：﹕]/g, ":")
-    .replace(/[　\t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
 function getYear(dateStr) {
   return dateStr ? dateStr.substring(0, 4) : "";
 }
@@ -1360,84 +1333,6 @@ function getTodayString() {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
-function parseOcrDate(text) {
-  const raw = String(text || "");
-  const western = raw.match(/(20\d{2})[./\-\s年]+(\d{1,2})[./\-\s月]+(\d{1,2})/);
-  if (western) {
-    const year = Number(western[1]);
-    const month = String(Number(western[2])).padStart(2, "0");
-    const day = String(Number(western[3])).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-  const roc = raw.match(/(?:民國|中華民國)?\s*(1\d{2})[./\-\s年]+(\d{1,2})[./\-\s月]+(\d{1,2})/);
-  if (roc) {
-    const year = Number(roc[1]) + 1911;
-    const month = String(Number(roc[2])).padStart(2, "0");
-    const day = String(Number(roc[3])).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-  return getTodayString();
-}
-
-function findLineNumber(text, keywords, range = {}) {
-  const lines = String(text || "").split("\n");
-  for (const line of lines) {
-    if (!keywords.some(keyword => line.includes(keyword))) continue;
-    const nums = [...line.matchAll(/(?:NT\$?\s*)?([0-9][0-9,]*(?:[.][0-9]+)?)/gi)]
-      .map(match => normalizeOcrNumber(match[1]))
-      .filter(value => Number.isFinite(value));
-    const matched = nums.find(value =>
-      (range.min == null || value >= range.min) &&
-      (range.max == null || value <= range.max)
-    );
-    if (Number.isFinite(matched)) return matched;
-  }
-  return null;
-}
-
-function parseMoneyFromOcr(text) {
-  const labeled = findLineNumber(text, ["總計", "合計", "金額", "應收", "實收", "小計", "刷卡"], { min: 1, max: 500000 });
-  if (Number.isFinite(labeled)) return Math.round(labeled);
-  const numbers = [...String(text || "").matchAll(/(?:NT\$?\s*)?([0-9][0-9,]{2,}(?:[.][0-9]+)?)/gi)]
-    .map(match => normalizeOcrNumber(match[1]))
-    .filter(value => Number.isFinite(value) && value >= 50 && value <= 500000);
-  return numbers.length ? Math.round(Math.max(...numbers)) : null;
-}
-
-function parseMileageFromOcr(text) {
-  const labeled = findLineNumber(text, ["里程", "公里", "km", "KM"], { min: 1, max: 999999 });
-  if (Number.isFinite(labeled)) return Math.round(labeled);
-  return getCurrentMileage() || null;
-}
-
-function parseFuelPhotoText(rawText) {
-  const text = normalizeOcrText(rawText);
-  const litersMatch =
-    text.match(/(?:加油量|公升|升數|數量|油量)[^\d]{0,8}([0-9]{1,3}(?:[.,.][0-9]{1,3})?)/i) ||
-    text.match(/([0-9]{1,3}(?:[.,.][0-9]{1,3})?)\s*(?:L|公升|升)\b/i);
-  const unitPriceMatch =
-    text.match(/(?:單價|牌告|油價)[^\d]{0,8}([0-9]{2}(?:[.,.][0-9])?)/) ||
-    text.match(/([0-9]{2}(?:[.,.][0-9])?)\s*(?:元\s*\/?\s*L|\/\s*L)/i);
-  const fuelTypeMatch = text.match(/(?:無鉛|汽油)?\s*(92|95|98)|\b(92|95|98)\s*(?:無鉛|汽油)/);
-  const stationMatch = text.match(/(中油|台塑|全國|統一精工|山隆|福懋|台亞|速邁樂|加油站)/);
-  const liters = litersMatch ? normalizeOcrNumber(litersMatch[1]) : null;
-  const unitPrice = unitPriceMatch ? normalizeOcrNumber(unitPriceMatch[1]) : null;
-  const cost = parseMoneyFromOcr(text);
-  const mileage = parseMileageFromOcr(text);
-  return {
-    mode: "fuel",
-    rawText: text,
-    date: parseOcrDate(text),
-    mileage,
-    liters: Number.isFinite(liters) ? liters : null,
-    unitPrice: Number.isFinite(unitPrice) ? unitPrice : null,
-    cost,
-    fuelType: fuelTypeMatch ? (fuelTypeMatch[1] || fuelTypeMatch[2]) : DEFAULT_FUEL_TYPE,
-    fullTank: true,
-    note: stationMatch ? `${stationMatch[1]}，照片辨識` : "照片辨識"
-  };
-}
-
 function inferServiceCategory(text) {
   const source = String(text || "");
   if (/保險|強制險|任意險|保單/.test(stripPhrases(source, ["保險桿", "保險絲"]))) return "保險";
@@ -1450,28 +1345,6 @@ function inferServiceCategory(text) {
   return "保養";
 }
 
-function buildServiceDetailFromOcr(text) {
-  const lines = normalizeOcrText(text).split("\n")
-    .map(line => line.trim())
-    .filter(line => line.length >= 2)
-    .filter(line => !/統一編號|電話|地址|發票|收據|刷卡|信用卡/.test(line));
-  const useful = lines.filter(line => /機油|保養|維修|更換|輪胎|電瓶|煞車|變速箱|保險|驗車|牌照稅|燃料稅|工資|零件/.test(line));
-  return (useful.length ? useful : lines).slice(0, 4).join("、") || "照片辨識紀錄";
-}
-
-function parseServicePhotoText(rawText) {
-  const text = normalizeOcrText(rawText);
-  return {
-    mode: "service",
-    rawText: text,
-    date: parseOcrDate(text),
-    mileage: parseMileageFromOcr(text),
-    category: inferServiceCategory(text),
-    cost: parseMoneyFromOcr(text),
-    detail: buildServiceDetailFromOcr(text),
-    note: "照片辨識，請確認欄位"
-  };
-}
 function getCategoryEmoji(cat) {
   const map = { 保養:"🔧", 維修:"🚨", 更換:"🔄", 加油:"⛽", 保險:"🛡", "檢驗/稅費":"📅", 清潔美容:"✨", 改裝升級:"⚡", 其他:"📌" };
   return map[cat] || "📌";
@@ -1495,8 +1368,6 @@ function updateStats() {
   const oneYearAgo = new Date(today);
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-  document.getElementById("statTotalRecords").textContent = serviceRecords.length;
-
   const total = serviceRecords.reduce((s, r) => s + asNumber(r.cost), 0);
   document.getElementById("statTotalCost").textContent = total > 0
     ? formatCompactCost(total)
@@ -1505,10 +1376,6 @@ function updateStats() {
   const maxMile = getEffectiveCurrentMileage();
   document.getElementById("statCurrentMileage").textContent =
     maxMile.toLocaleString("zh-TW");
-
-  const lastMaint = getLastMaintenanceRecord();
-  document.getElementById("statLastMaintenance").textContent =
-    lastMaint?.date ? lastMaint.date.substring(0, 7) : "—";
 
   // 總覽只看用車成本（油、保養維修、保險稅費），改裝美容另外列在「更多車況」。
   const recentSplit = getCostSplit(oneYearAgo);
@@ -1530,9 +1397,6 @@ function updateStats() {
   document.getElementById("btnUpgradeList").hidden = totalSplit.upgradeCount === 0;
 
   const fuelStats = getFuelStats();
-  document.getElementById("statAvgFuel").textContent = fuelStats.averageKmPerLiter
-    ? fuelStats.averageKmPerLiter.toFixed(1)
-    : fuelStats.logs.length ? "待計算" : "—";
   document.getElementById("statLastFuel").textContent = fuelStats.latestKmPerLiter
     ? fuelStats.latestKmPerLiter.toFixed(1)
     : fuelStats.logs.length ? "待計算" : "—";
@@ -2112,8 +1976,7 @@ function chartTooltipColors(theme) {
 const DIALOG_CLOSERS = {
   modal: () => closeModal(),
   mileageModal: () => closeMileageModal(),
-  photoModal: () => closePhotoModal(),
-  aiModal: () => closeAiModal(),
+  textEntryModal: () => closeTextEntryModal(),
   fuelLogModal: () => closeFuelLogModal(),
   fuelModal: () => closeFuelModal(),
   deleteModal: () => closeDeleteModal(),
@@ -2238,18 +2101,6 @@ function downloadCalendarReminder() {
   }
 }
 
-function getDataHealthText() {
-  const checks = [
-    getCurrentMileage() > 0 || Number.isFinite(getVehicleBaselineMileage()),
-    !!getLastMaintenanceRecord() || !!getVehicleBaselineDate(),
-    getFuelLogs().length > 0,
-    !!getLatestMatchingRecord(CONSUMABLE_RULES.find(rule => rule.name === "保險")),
-    !!getLatestMatchingRecord(TAX_RULE)
-  ];
-  const done = checks.filter(Boolean).length;
-  return `${done}/${checks.length} 項`;
-}
-
 function buildOwnerActions() {
   const actions = [];
   const currentMileage = getCurrentMileage();
@@ -2336,11 +2187,9 @@ function buildOwnerActions() {
 function renderOwnerDashboard() {
   const title = document.getElementById("ownerPriorityTitle");
   const meta = document.getElementById("ownerPriorityMeta");
-  const fixedCost = document.getElementById("ownerFixedCost");
   const nextLegalEl = document.getElementById("ownerNextLegal");
-  const dataHealth = document.getElementById("ownerDataHealth");
   const list = document.getElementById("ownerActionList");
-  if (!title || !meta || !fixedCost || !nextLegalEl || !dataHealth || !list) return;
+  if (!title || !meta || !nextLegalEl || !list) return;
 
   const actions = buildOwnerActions().slice(0, 3);
   const urgentCount = actions.filter(action => action.status === "due").length;
@@ -2348,7 +2197,6 @@ function renderOwnerDashboard() {
   const missingCount = actions.filter(action => action.status === "missing").length;
   const infoCount = actions.filter(action => action.status === "info").length;
   const nextLegal = getNextLegalState();
-  const annualFixedCost = FIXED_OWNER_COSTS.reduce((sum, item) => sum + item.amount, 0);
 
   title.textContent = urgentCount
     ? `${urgentCount} 項需要處理`
@@ -2360,9 +2208,7 @@ function renderOwnerDashboard() {
           ? `${infoCount} 項建議補登`
           : "車況追蹤正常";
   meta.textContent = `${VEHICLE_PROFILE.name}，${VEHICLE_PROFILE.displacementCc} c.c. ${VEHICLE_PROFILE.fuel}；依目前紀錄排序下一步。`;
-  fixedCost.textContent = "約 NT$ " + annualFixedCost.toLocaleString("zh-TW");
   nextLegalEl.textContent = nextLegal ? `${nextLegal.name} ${formatDateYMD(nextLegal.dueDate)}` : "—";
-  dataHealth.textContent = getDataHealthText();
 
   renderedOwnerActions = actions;
   list.innerHTML = actions.map((action, index) => {
@@ -2691,14 +2537,6 @@ function updateFilterPills() {
 function updateFilterSummary(filtered) {
   const el = document.getElementById("filterSummary");
   if (!el) return;
-  if (activeRecordsSubtab === "mileage") {
-    const scopeParts = [];
-    if (currentYear) scopeParts.push(currentYear + " 年");
-    if (currentSearch) scopeParts.push("搜尋「" + currentSearch + "」");
-    const scope = scopeParts.length ? "（" + scopeParts.join(" / ") + "）" : "";
-    el.textContent = `顯示 ${filtered.length} 筆里程紀錄${scope}`;
-    return;
-  }
   const filteredServiceRecords = filtered.filter(r => !isMileageUpdateRecord(r));
   const total = filteredServiceRecords.reduce((sum, r) => sum + asNumber(r.cost), 0);
   const parts = [];
@@ -2715,7 +2553,7 @@ function updateFilterSummary(filtered) {
 // ============================================================
 // 圖表
 // ============================================================
-// 圖表與 OCR 函式庫只在用到時才下載，首次開啟不必等 CDN。
+// 圖表函式庫只在用到時才下載，首次開啟不必等 CDN。
 const scriptLoads = new Map();
 
 function loadScriptOnce(src, integrity = "") {
@@ -2763,7 +2601,6 @@ function buildCharts() {
     if (!ready || token !== chartBuildToken) return;
     if (activeView === "analysis") {
       buildCostChart();
-      buildCategoryChart();
     } else if (activeView === "records" && activeRecordsSubtab === "fuel") {
       buildFuelTrendChart();
     }
@@ -2956,84 +2793,11 @@ function buildCostChart() {
   });
 }
 
-// 類別色：dataviz 驗證過的 8 色固定順序（深／淺各一組），依標籤色相對應；「其他」用中性灰。
-// 扇區依此順序排列，相鄰顏色在色弱下也分得開；圖例直接列出金額。
-const CATEGORY_CHART_ORDER = ["更換", "加油", "保險", "檢驗/稅費", "清潔美容", "保養", "改裝升級", "維修", "其他"];
-const CATEGORY_CHART_COLORS = {
-  dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767", "#6e7681"],
-  light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948", "#8c959f"]
-};
-
-function buildCategoryChart() {
-  const catMap = {};
-  getServiceRecords().forEach(r => {
-    const cost = asNumber(r.cost);
-    if (!cost) return;
-    const category = CATEGORY_CHART_ORDER.includes(r.category) ? r.category : "其他";
-    catMap[category] = (catMap[category] || 0) + cost;
-  });
-  const cats = CATEGORY_CHART_ORDER.filter(category => catMap[category]);
-  const vals = cats.map(c => catMap[c]);
-  const palette = CATEGORY_CHART_COLORS[getTheme()];
-  const colors = cats.map(c => palette[CATEGORY_CHART_ORDER.indexOf(c)]);
-  const theme = getChartTheme();
-  const total = vals.reduce((sum, value) => sum + value, 0);
-
-  const ctx = document.getElementById("categoryChart").getContext("2d");
-  if (catChart) catChart.destroy();
-  const legendLabels = { color: theme.tick, font: { size: 11 }, padding: 12 };
-  const defaultLegendLabels = Chart.overrides?.doughnut?.plugins?.legend?.labels?.generateLabels;
-  if (defaultLegendLabels) {
-    legendLabels.generateLabels = chart => defaultLegendLabels(chart).map(item => ({
-      ...item,
-      text: `${item.text} ${formatCompactCurrency(vals[item.index])}`
-    }));
-  }
-
-  catChart = new Chart(ctx, {
-    type: "doughnut",
-    data: {
-      labels: cats,
-      datasets: [{
-        data: vals,
-        backgroundColor: colors,
-        borderColor: theme.surface,
-        borderWidth: 2,
-        hoverOffset: 8
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: "60%",
-      plugins: {
-        legend: {
-          position: "bottom",
-          labels: legendLabels
-        },
-        tooltip: {
-          ...chartTooltipColors(theme),
-          callbacks: {
-            label: ctx => {
-              const pct = ((ctx.raw / total) * 100).toFixed(1);
-              return "NT$ " + ctx.raw.toLocaleString("zh-TW") + " (" + pct + "%)";
-            }
-          }
-        }
-      }
-    }
-  });
-}
-
 // ============================================================
 // 渲染紀錄列表
 // ============================================================
 function getFilteredRecords() {
   let list = [...records];
-
-  if (activeRecordsSubtab === "mileage") {
-    list = list.filter(isMileageUpdateRecord);
-  }
 
   // 類別篩選
   if (currentFilter !== "全部") {
@@ -3174,10 +2938,8 @@ function showFuelMessage(type, text) { showMessage("fuelMessage", type, text); }
 function clearFuelMessage() { clearMessage("fuelMessage"); }
 function showFuelLogMessage(type, text) { showMessage("fuelLogMessage", type, text); }
 function clearFuelLogMessage() { clearMessage("fuelLogMessage", "fuelLogForm"); }
-function showPhotoMessage(type, text) { showMessage("photoMessage", type, text); }
-function clearPhotoMessage() { clearMessage("photoMessage"); }
-function showAiMessage(type, text) { showMessage("aiMessage", type, text); }
-function clearAiMessage() { clearMessage("aiMessage"); }
+function showTextEntryMessage(type, text) { showMessage("textEntryMessage", type, text); }
+function clearTextEntryMessage() { clearMessage("textEntryMessage"); }
 
 function updateMileageHint(idx = parseInt(document.getElementById("editIndex").value)) {
   const maxMileage = getMaxMileage(idx);
@@ -3215,7 +2977,7 @@ function syncAutoMileage() {
   input.value = isToday && currentMileage > 0 ? String(currentMileage) : "";
 }
 
-// 照片、AI 草稿有里程就用草稿的；沒有時依日期決定要不要帶入目前里程。
+// 文字快速新增的草稿有里程就用草稿的；沒有時依日期決定要不要帶入目前里程。
 function setFormMileage(value) {
   const input = document.getElementById("formMileage");
   if (value) {
@@ -3281,8 +3043,8 @@ function closeModal() {
   clearFormMessage();
 }
 
-function renderAiResultNote(text) {
-  const el = document.getElementById("aiResultNote");
+function renderTextEntryResult(text) {
+  const el = document.getElementById("textEntryResult");
   if (!text) {
     el.style.display = "none";
     el.innerHTML = "";
@@ -3734,7 +3496,7 @@ function setActiveView(view) {
 }
 
 function setRecordsSubtab(tab) {
-  activeRecordsSubtab = ["all", "fuel", "mileage"].includes(tab) ? tab : "all";
+  activeRecordsSubtab = tab === "fuel" ? "fuel" : "all";
   resetRecordsPaging();
   const allPanel = document.getElementById("allRecordsPanel");
   const fuelPanel = document.getElementById("fuelAnalysisPanel");
@@ -3783,10 +3545,8 @@ function runQuickEntry(action) {
     openAddModal();
   } else if (action === "mileage") {
     openMileageModal();
-  } else if (action === "photo") {
-    openPhotoModal();
   } else if (action === "text") {
-    openAiModal();
+    openTextEntryModal();
   }
 }
 
@@ -3810,296 +3570,37 @@ function closeFuelModal() {
   clearFuelMessage();
 }
 
-function setPhotoMode(mode) {
-  photoMode = mode === "service" ? "service" : "fuel";
-  document.querySelectorAll(".photo-mode-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.photoMode === photoMode);
-  });
-  if (photoParsed?.rawText) {
-    photoParsed = photoMode === "fuel"
-      ? parseFuelPhotoText(photoParsed.rawText)
-      : parseServicePhotoText(photoParsed.rawText);
-    renderPhotoResult(photoParsed);
-  }
+function openTextEntryModal() {
+  document.getElementById("textEntryForm").reset();
+  renderTextEntryResult("");
+  clearTextEntryMessage();
+  document.getElementById("textEntrySubmitBtn").disabled = false;
+  openDialog("textEntryModal");
+  setTimeout(() => document.getElementById("textEntryInput").focus(), 50);
 }
 
-function openPhotoModal() {
-  photoMode = "fuel";
-  photoParsed = null;
-  if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
-  photoPreviewUrl = "";
-  document.getElementById("photoCameraInput").value = "";
-  document.getElementById("photoLibraryInput").value = "";
-  document.getElementById("photoRawText").value = "";
-  document.getElementById("photoPreview").style.display = "none";
-  document.getElementById("photoPreview").removeAttribute("src");
-  document.getElementById("photoResult").style.display = "none";
-  document.getElementById("photoResultGrid").innerHTML = "";
-  document.getElementById("photoApplyBtn").disabled = true;
-  clearPhotoMessage();
-  setPhotoMode("fuel");
-  openDialog("photoModal");
+function closeTextEntryModal() {
+  closeDialog("textEntryModal");
+  renderTextEntryResult("");
+  clearTextEntryMessage();
 }
 
-function closePhotoModal() {
-  closeDialog("photoModal");
-  clearPhotoMessage();
-  releaseOcrWorker();
-}
-
-function renderPhotoResult(parsed) {
-  const result = document.getElementById("photoResult");
-  const grid = document.getElementById("photoResultGrid");
-  const fields = parsed.mode === "fuel"
-    ? [
-        ["日期", parsed.date],
-        ["里程", parsed.mileage ? parsed.mileage.toLocaleString("zh-TW") + " km" : "需確認"],
-        ["公升", parsed.liters ? parsed.liters.toFixed(2) + " L" : "未讀到"],
-        ["油品", parsed.fuelType || "需確認"],
-        ["單價", parsed.unitPrice ? parsed.unitPrice.toFixed(1) + " 元/L" : "未讀到"],
-        ["油費", parsed.cost ? "NT$ " + parsed.cost.toLocaleString("zh-TW") : "未讀到"]
-      ]
-    : [
-        ["日期", parsed.date],
-        ["里程", parsed.mileage ? parsed.mileage.toLocaleString("zh-TW") + " km" : "需確認"],
-        ["類別", parsed.category || "需確認"],
-        ["費用", parsed.cost ? "NT$ " + parsed.cost.toLocaleString("zh-TW") : "未讀到"],
-        ["內容", parsed.detail || "需確認"]
-      ];
-  grid.innerHTML = fields.map(([label, value]) =>
-    `<div class="photo-result-item">${escapeHtml(label)}<strong>${escapeHtml(value)}</strong></div>`
-  ).join("");
-  result.style.display = "block";
-  document.getElementById("photoApplyBtn").disabled = false;
-}
-
-// OCR worker 在照片視窗開著時重複使用（連拍多張不必重新載入模型），關閉視窗即釋放記憶體。
-let ocrWorkerPromise = null;
-let ocrProgressHandler = null;
-
-function getOcrWorker() {
-  if (!ocrWorkerPromise) {
-    const logger = info => ocrProgressHandler?.(info);
-    ocrWorkerPromise = loadScriptOnce(TESSERACT_JS_URL, TESSERACT_JS_SRI)
-      .then(() => Tesseract.createWorker("chi_tra+eng", 1, { logger }))
-      .catch(error => {
-        console.warn("繁中 OCR 模型載入失敗，改用英文數字辨識", error);
-        return loadScriptOnce(TESSERACT_JS_URL, TESSERACT_JS_SRI)
-          .then(() => Tesseract.createWorker("eng", 1, { logger }));
-      })
-      .catch(error => {
-        ocrWorkerPromise = null;
-        throw error;
-      });
-  }
-  return ocrWorkerPromise;
-}
-
-function releaseOcrWorker() {
-  const pending = ocrWorkerPromise;
-  ocrWorkerPromise = null;
-  pending?.then(worker => worker.terminate()).catch(() => {});
-}
-
-// 手機照片常超過 4,000 px；縮到長邊 2,000 px 辨識快很多，收據文字仍清楚。
-async function prepareImageForOcr(file) {
-  if (typeof createImageBitmap !== "function") return file;
-  try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-    const scale = Math.min(1, OCR_MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
-    if (scale >= 1) {
-      bitmap.close?.();
-      return file;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close?.();
-    return canvas;
-  } catch (error) {
-    return file;
-  }
-}
-
-async function recognizePhotoFile(file) {
-  ocrProgressHandler = info => {
-    if (info.status === "recognizing text") {
-      const pct = Math.round((info.progress || 0) * 100);
-      showPhotoMessage("info", "正在辨識照片文字 " + pct + "%");
-    } else if (info.status) {
-      showPhotoMessage("info", "正在準備 OCR：" + info.status);
-    }
-  };
-  try {
-    const [worker, image] = await Promise.all([getOcrWorker(), prepareImageForOcr(file)]);
-    return await worker.recognize(image);
-  } finally {
-    ocrProgressHandler = null;
-  }
-}
-
-function openPhotoSourceInput(inputId) {
-  const input = document.getElementById(inputId);
-  if (!input) return;
-  input.value = "";
-  input.click();
-}
-
-async function handlePhotoInputChange(e) {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
-  photoPreviewUrl = URL.createObjectURL(file);
-  const preview = document.getElementById("photoPreview");
-  preview.src = photoPreviewUrl;
-  preview.style.display = "block";
-  document.getElementById("photoApplyBtn").disabled = true;
-  document.getElementById("photoResult").style.display = "none";
-  document.getElementById("photoRawText").value = "";
-  clearPhotoMessage();
-
-  try {
-    showPhotoMessage("info", "正在讀取照片，第一次使用可能需要下載 OCR 模型。");
-    const result = await recognizePhotoFile(file);
-    const text = normalizeOcrText(result.data?.text || "");
-    document.getElementById("photoRawText").value = text;
-    if (!text) {
-      showPhotoMessage("error", "沒有讀到文字，請換一張更清楚、光線更亮的照片。");
-      return;
-    }
-    photoParsed = photoMode === "fuel" ? parseFuelPhotoText(text) : parseServicePhotoText(text);
-    renderPhotoResult(photoParsed);
-    showPhotoMessage("info", "已讀取照片，請確認辨識結果後填入表單。");
-  } catch (err) {
-    console.error("照片辨識失敗", err);
-    showPhotoMessage("error", "照片辨識失敗。請確認網路可下載 OCR 模型，或換一張更清楚的照片。");
-  }
-}
-
-function applyPhotoParsedToForm() {
-  if (!photoParsed) return;
-  const parsed = photoParsed;
-  closePhotoModal();
-  if (parsed.mode === "fuel") {
-    openFuelLogModal({ skipPriceLoad: true });
-    document.getElementById("fuelLogDateInput").value = parsed.date || getTodayString();
-    document.getElementById("fuelLogMileageInput").value = parsed.mileage || getCurrentMileage() || "";
-    document.getElementById("fuelLogLitersInput").value = parsed.liters ? parsed.liters.toFixed(2) : "";
-    document.getElementById("fuelLogUnitPriceInput").value = parsed.unitPrice ? parsed.unitPrice.toFixed(1) : "";
-    document.getElementById("fuelLogCostInput").value = parsed.cost || "";
-    document.getElementById("fuelLogTypeInput").value = ["92", "95", "98"].includes(parsed.fuelType) ? parsed.fuelType : DEFAULT_FUEL_TYPE;
-    document.getElementById("fuelLogFullTankInput").value = parsed.fullTank ? "yes" : "no";
-    document.getElementById("fuelLogNoteInput").value = parsed.note || "照片辨識";
-    setFuelPriceStatus("已從照片帶入資料，請確認後儲存。");
-    updateFuelLogCostFromDiscount();
-    if (parsed.cost) document.getElementById("fuelLogCostInput").value = parsed.cost;
-    showFuelLogMessage("info", "已從照片填入加油資料；請確認里程、公升與金額後儲存。");
-    setDialogFormDirty("fuelLogModal", true);
-    return;
-  }
-
-  openAddModal();
-  document.getElementById("formDate").value = parsed.date || getTodayString();
-  setFormMileage(parsed.mileage);
-  document.getElementById("formCategory").value = parsed.category || "保養";
-  document.getElementById("formCost").value = parsed.cost || "";
-  document.getElementById("formDetail").value = parsed.detail || "照片辨識紀錄";
-  document.getElementById("formNote").value = parsed.note || "照片辨識，請確認欄位";
-  updateMileageHint(-1);
-  showFormMessage("info", "已從照片填入紀錄；請確認日期、里程、費用與內容後儲存。");
-  setDialogFormDirty("modal", true);
-}
-
-function openAiModal() {
-  document.getElementById("aiRecordForm").reset();
-  renderAiResultNote("");
-  clearAiMessage();
-  document.getElementById("aiSubmitBtn").disabled = false;
-  openDialog("aiModal");
-  setTimeout(() => document.getElementById("aiRecordText").focus(), 50);
-}
-
-function closeAiModal() {
-  closeDialog("aiModal");
-  renderAiResultNote("");
-  clearAiMessage();
-}
-
-// 只送最近的紀錄給 AI 當參考：夠判斷里程與用語，又不會隨紀錄變多而變慢、變貴。
-function getAiSafeRecords() {
-  return getRecordsNewestFirst().slice(0, AI_CONTEXT_RECORD_LIMIT).map(r => ({
-    date: r.date || "",
-    mileage: Number.isFinite(Number(r.mileage)) ? Number(r.mileage) : null,
-    category: r.category || "",
-    detail: r.detail || "",
-    cost: asNumber(r.cost),
-    note: r.note || ""
-  }));
-}
-
-function buildAiRequestPayload(text) {
-  return {
-    action: "aiRecordAssistant",
-    text,
-    records: getAiSafeRecords(),
-    today: getTodayString(),
-    vehicle: {
-      name: VEHICLE_PROFILE.name,
-      fuel: VEHICLE_PROFILE.fuel,
-      defaultFuelType: DEFAULT_FUEL_TYPE,
-      defaultDiscount: DEFAULT_FUEL_DISCOUNT,
-      currentMileage: getCurrentMileage()
-    }
-  };
-}
-
-async function ensureAiBackendReady() {
-  if (aiBackendReady === true) return true;
-  const res = await fetchWithTimeout(API_URL + "?action=aiStatus", { cache: "no-store" }, 6500);
-  if (!res.ok) throw new Error("AI backend status HTTP " + res.status);
-  const data = await res.json();
-  aiBackendReady = !!data?.aiRecordAssistant;
-  if (!aiBackendReady) {
-    throw new Error("AI backend is not deployed");
-  }
-  if (!data.hasOpenAiKey) {
-    throw new Error("OPENAI_API_KEY is not configured in Apps Script");
-  }
-  return true;
-}
-
-async function requestAiRecordDraft(text) {
-  await ensureAiBackendReady();
-  const res = await fetchWithTimeout(API_URL + "?action=aiRecordAssistant", {
-    method: "POST",
-    body: JSON.stringify(buildAiRequestPayload(text)),
-    redirect: "follow"
-  }, 24000);
-  if (!res.ok) throw new Error("AI backend HTTP " + res.status);
-  const data = await res.json();
-  if (!data?.ok) {
-    throw new Error(data?.message || "AI 解析失敗");
-  }
-  return data;
-}
-
-function getAiDraftNumber(value) {
+function getDraftNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function getAiDraftInteger(value) {
-  const n = getAiDraftNumber(value);
+function getDraftInteger(value) {
+  const n = getDraftNumber(value);
   return n === null ? null : Math.round(n);
 }
 
-function normalizeAiDate(value) {
+function normalizeDraftDate(value) {
   const text = String(value || "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : getTodayString();
 }
 
-function normalizeAiCategory(value, sourceText) {
+function normalizeDraftCategory(value, sourceText) {
   const allowed = ["保養", "維修", "更換", "保險", "檢驗/稅費", "清潔美容", "改裝升級", "其他"];
   return allowed.includes(value) ? value : inferServiceCategory(sourceText);
 }
@@ -4221,7 +3722,7 @@ function parseLocalRecordDraft(text) {
       ok: true,
       mode: "fuel",
       localParser: true,
-      message: "已用本機規則解析為加油紀錄，未使用 API 額度。",
+      message: "已用本機規則解析為加油紀錄。",
       draft: {
         date,
         mileage: mileage || getCurrentMileage() || 0,
@@ -4241,13 +3742,13 @@ function parseLocalRecordDraft(text) {
   }
 
   if (!hasQuickServiceSignal(raw)) return null;
-  const category = normalizeAiCategory("", raw);
+  const category = normalizeDraftCategory("", raw);
   const detail = buildQuickServiceDetail(raw, cost, mileage);
   return {
     ok: true,
     mode: "service",
     localParser: true,
-    message: "已用本機規則解析為紀錄草稿，未使用 API 額度。",
+    message: "已用本機規則解析為紀錄草稿。",
     draft: {
       date,
       mileage: mileage || 0,
@@ -4266,7 +3767,7 @@ function parseLocalRecordDraft(text) {
   };
 }
 
-function summarizeAiDraft(result) {
+function summarizeDraft(result) {
   const draft = result.draft || {};
   const missing = Array.isArray(draft.missingFields) ? draft.missingFields.filter(Boolean) : [];
   const confidence = Number(draft.confidence);
@@ -4277,13 +3778,13 @@ function summarizeAiDraft(result) {
   return `<strong>${escapeHtml(result.message || "已產生紀錄草稿")}</strong><br>${escapeHtml(confidenceText + missingText)}`;
 }
 
-function getAiReviewSuffix(result) {
+function getDraftReviewSuffix(result) {
   const draft = result.draft || {};
   const missing = Array.isArray(draft.missingFields) ? draft.missingFields.filter(Boolean) : [];
   const confidence = Number(draft.confidence);
   const notes = [];
   if (Number.isFinite(confidence) && confidence > 0 && confidence < 0.65) {
-    notes.push("AI 信心偏低");
+    notes.push("信心偏低");
   }
   if (missing.length) {
     notes.push("需確認：" + missing.join("、"));
@@ -4291,16 +3792,16 @@ function getAiReviewSuffix(result) {
   return notes.length ? "（" + notes.join("；") + "）" : "";
 }
 
-async function applyAiFuelDraft(result, sourceText) {
+async function applyFuelDraft(result, sourceText) {
   const draft = result.draft || {};
-  const cost = getAiDraftInteger(draft.cost);
+  const cost = getDraftInteger(draft.cost);
   const fuelType = ["92", "95", "98"].includes(String(draft.fuelType)) ? String(draft.fuelType) : DEFAULT_FUEL_TYPE;
-  const discount = getAiDraftNumber(draft.discount) ?? DEFAULT_FUEL_DISCOUNT;
-  const mileage = getAiDraftInteger(draft.mileage) ?? getCurrentMileage();
+  const discount = getDraftNumber(draft.discount) ?? DEFAULT_FUEL_DISCOUNT;
+  const mileage = getDraftInteger(draft.mileage) ?? getCurrentMileage();
 
-  closeAiModal();
+  closeTextEntryModal();
   openFuelLogModal({ skipPriceLoad: true });
-  document.getElementById("fuelLogDateInput").value = normalizeAiDate(draft.date);
+  document.getElementById("fuelLogDateInput").value = normalizeDraftDate(draft.date);
   document.getElementById("fuelLogMileageInput").value = mileage || "";
   document.getElementById("fuelLogTypeInput").value = fuelType;
   document.getElementById("fuelLogFullTankInput").value = draft.fullTank === false ? "no" : "yes";
@@ -4308,7 +3809,7 @@ async function applyAiFuelDraft(result, sourceText) {
   document.getElementById("fuelLogCostInput").value = cost || "";
   document.getElementById("fuelLogNoteInput").value = String(draft.note || "").trim() || sourceText;
 
-  const unitPrice = getAiDraftNumber(draft.unitPrice);
+  const unitPrice = getDraftNumber(draft.unitPrice);
   if (unitPrice) {
     document.getElementById("fuelLogUnitPriceInput").value = unitPrice.toFixed(1);
   } else {
@@ -4317,7 +3818,7 @@ async function applyAiFuelDraft(result, sourceText) {
 
   const finalUnitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
   const netPrice = Number.isFinite(finalUnitPrice) ? Math.max(finalUnitPrice - discount, 0) : 0;
-  const liters = getAiDraftNumber(draft.liters) ?? (cost && netPrice > 0 ? cost / netPrice : null);
+  const liters = getDraftNumber(draft.liters) ?? (cost && netPrice > 0 ? cost / netPrice : null);
   if (liters) {
     document.getElementById("fuelLogLitersInput").value = liters.toFixed(2);
   }
@@ -4325,76 +3826,67 @@ async function applyAiFuelDraft(result, sourceText) {
   if (cost) document.getElementById("fuelLogCostInput").value = cost;
 
   const message = liters
-    ? `${result.localParser ? "本機規則" : "AI"} 已填入加油草稿；請確認里程、公升、油價與金額後儲存。`
-    : `${result.localParser ? "本機規則" : "AI"} 已填入加油草稿；目前缺公升數，請確認油價或手動輸入公升後儲存。`;
-  const reviewSuffix = getAiReviewSuffix(result);
+    ? "已填入加油草稿；請確認里程、公升、油價與金額後儲存。"
+    : "已填入加油草稿；目前缺公升數，請確認油價或手動輸入公升後儲存。";
+  const reviewSuffix = getDraftReviewSuffix(result);
   showFuelLogMessage(liters ? "info" : "error", message + reviewSuffix);
   setDialogFormDirty("fuelLogModal", true);
 }
 
-function applyAiServiceDraft(result, sourceText) {
+function applyServiceDraft(result, sourceText) {
   const draft = result.draft || {};
-  closeAiModal();
+  closeTextEntryModal();
   openAddModal();
-  document.getElementById("formDate").value = normalizeAiDate(draft.date);
-  setFormMileage(getAiDraftInteger(draft.mileage));
-  document.getElementById("formCategory").value = normalizeAiCategory(draft.category, sourceText);
-  document.getElementById("formCost").value = getAiDraftInteger(draft.cost) || "";
+  document.getElementById("formDate").value = normalizeDraftDate(draft.date);
+  setFormMileage(getDraftInteger(draft.mileage));
+  document.getElementById("formCategory").value = normalizeDraftCategory(draft.category, sourceText);
+  document.getElementById("formCost").value = getDraftInteger(draft.cost) || "";
   document.getElementById("formTemplate").value = "";
   document.getElementById("formDetail").value = String(draft.detail || "").trim() || sourceText;
   document.getElementById("formNote").value = String(draft.note || "").trim();
   updateMileageHint(-1);
-  showFormMessage("info", `${result.localParser ? "本機規則" : "AI"} 已填入紀錄草稿；請確認日期、里程、類別、費用與內容後儲存。` + getAiReviewSuffix(result));
+  showFormMessage("info", "已填入紀錄草稿；請確認日期、里程、類別、費用與內容後儲存。" + getDraftReviewSuffix(result));
   setDialogFormDirty("modal", true);
 }
 
-async function applyAiDraftToForm(result, sourceText) {
-  renderAiResultNote(summarizeAiDraft(result));
+async function applyDraftToForm(result, sourceText) {
+  renderTextEntryResult(summarizeDraft(result));
   if (result.mode === "fuel") {
-    await applyAiFuelDraft(result, sourceText);
+    await applyFuelDraft(result, sourceText);
   } else {
-    applyAiServiceDraft(result, sourceText);
+    applyServiceDraft(result, sourceText);
   }
 }
 
-async function handleAiRecordSubmit(e) {
+async function handleTextEntrySubmit(e) {
   e.preventDefault();
-  const input = document.getElementById("aiRecordText");
+  const input = document.getElementById("textEntryInput");
   const text = input.value.trim();
   if (!text) {
-    showAiMessage("error", "請先輸入要新增的紀錄內容。");
+    showTextEntryMessage("error", "請先輸入要新增的紀錄內容。");
     input.focus();
     return;
   }
 
-  const btn = document.getElementById("aiSubmitBtn");
+  const btn = document.getElementById("textEntrySubmitBtn");
   btn.disabled = true;
-  renderAiResultNote("");
-  showAiMessage("info", "正在用本機規則解析紀錄...");
+  renderTextEntryResult("");
   try {
+    // 只用本機規則，不連網；判斷不出來時把文字帶進一般表單，由使用者補上類別與金額。
     const localResult = parseLocalRecordDraft(text);
-    if (localResult) {
-      renderAiResultNote(summarizeAiDraft(localResult));
-      showAiMessage("info", "已用本機規則產生草稿，正在填入表單。");
-      await applyAiDraftToForm(localResult, text);
-      return;
-    }
-
-    showAiMessage("info", "本機規則無法判斷，改用 AI 解析紀錄...");
-    const result = await requestAiRecordDraft(text);
-    renderAiResultNote(summarizeAiDraft(result));
-    showAiMessage("info", "已產生草稿，正在填入表單。");
-    await applyAiDraftToForm(result, text);
+    const result = localResult || {
+      localParser: true,
+      mode: "service",
+      message: "無法自動判斷，已把內容帶入一般表單",
+      draft: { detail: text, missingFields: ["類別", "費用", "里程"] }
+    };
+    renderTextEntryResult(summarizeDraft(result));
+    await applyDraftToForm(result, text);
+    // 類別留空讓使用者自己選，避免不明項目被當成「保養」而重算 7,500 km。
+    if (!localResult) document.getElementById("formCategory").value = "";
   } catch (err) {
-    console.error("AI 紀錄助手失敗", err);
-    const message = err.message === "AI backend is not deployed"
-      ? "AI 代理尚未部署到 Apps Script。請先更新 Apps Script 後再使用。"
-      : err.message === "OPENAI_API_KEY is not configured in Apps Script"
-        ? "Apps Script 尚未設定 OPENAI_API_KEY。請先在 Script Properties 設定後再使用。"
-        : /quota|insufficient_quota/i.test(err.message || "")
-          ? "OpenAI API 額度不足或 billing 尚未啟用；請到 OpenAI Platform 檢查方案與付款設定。"
-          : "AI 解析失敗：" + (err.message || "請稍後再試，或先使用一般新增表單。");
-    showAiMessage("error", message);
+    console.error("文字快速新增失敗", err);
+    showTextEntryMessage("error", "無法填入表單：" + (err.message || "請改用一般新增表單。"));
     btn.disabled = false;
   }
 }
@@ -4902,7 +4394,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-overview-action='records']").forEach(button => {
     button.addEventListener("click", () => setActiveView("records"));
   });
-  document.getElementById("btnUpdateMileage").addEventListener("click", openMileageModal);
   document.getElementById("btnAddFuelAdditive").addEventListener("click", openFuelModal);
 
   // 匯出
@@ -4949,26 +4440,14 @@ document.addEventListener("DOMContentLoaded", () => {
     updateCurrentMileageHint();
   });
 
-  // 照片辨識
-  document.getElementById("photoModalClose").addEventListener("click", closePhotoModal);
-  document.getElementById("photoCancelBtn").addEventListener("click", closePhotoModal);
-  document.querySelectorAll(".photo-mode-btn").forEach(btn => {
-    btn.addEventListener("click", () => setPhotoMode(btn.dataset.photoMode));
-  });
-  document.getElementById("photoCameraBtn").addEventListener("click", () => openPhotoSourceInput("photoCameraInput"));
-  document.getElementById("photoLibraryBtn").addEventListener("click", () => openPhotoSourceInput("photoLibraryInput"));
-  document.getElementById("photoCameraInput").addEventListener("change", handlePhotoInputChange);
-  document.getElementById("photoLibraryInput").addEventListener("change", handlePhotoInputChange);
-  document.getElementById("photoApplyBtn").addEventListener("click", applyPhotoParsedToForm);
-
-  // AI 紀錄助手
-  document.getElementById("aiModalClose").addEventListener("click", closeAiModal);
-  document.getElementById("aiCancelBtn").addEventListener("click", closeAiModal);
-  document.getElementById("aiRecordForm").addEventListener("submit", handleAiRecordSubmit);
-  document.getElementById("aiRecordText").addEventListener("input", () => {
-    clearAiMessage();
-    renderAiResultNote("");
-    document.getElementById("aiSubmitBtn").disabled = false;
+  // 文字快速新增
+  document.getElementById("textEntryModalClose").addEventListener("click", closeTextEntryModal);
+  document.getElementById("textEntryCancelBtn").addEventListener("click", closeTextEntryModal);
+  document.getElementById("textEntryForm").addEventListener("submit", handleTextEntrySubmit);
+  document.getElementById("textEntryInput").addEventListener("input", () => {
+    clearTextEntryMessage();
+    renderTextEntryResult("");
+    document.getElementById("textEntrySubmitBtn").disabled = false;
   });
 
   // 加油紀錄

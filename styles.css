@@ -873,7 +873,6 @@ body {
 }
 .charts-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
   gap: 16px;
 }
 .chart-card {
@@ -912,7 +911,6 @@ body {
 }
 .chart-legend-running i { background: var(--chart-bar); }
 .chart-legend-upgrades i { background: var(--chart-bar-muted); }
-.chart-wide { grid-column: 1; }
 
 /* ============================================================
    Fuel Log Table
@@ -1366,54 +1364,7 @@ body {
   border: 1px solid rgba(88,166,255,0.35);
   color: var(--info-text);
 }
-.photo-mode {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.photo-mode-btn {
-  justify-content: center;
-}
-.photo-mode-btn.active {
-  background: var(--blue-bg);
-  color: var(--blue);
-  border-color: rgba(88,166,255,0.42);
-}
-.photo-preview {
-  display: none;
-  width: 100%;
-  max-height: 220px;
-  object-fit: contain;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-}
-.photo-result {
-  display: none;
-  grid-column: 1 / -1;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-}
-.photo-result-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
-}
-.photo-result-item {
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-}
-.photo-result-item strong {
-  display: block;
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  margin-top: 2px;
-}
-.ai-result-note {
+.text-entry-result {
   display: none;
   border: 1px solid rgba(88,166,255,0.25);
   border-radius: var(--radius-sm);
@@ -1423,12 +1374,8 @@ body {
   font-size: 0.82rem;
   line-height: 1.5;
 }
-.ai-result-note strong {
+.text-entry-result strong {
   color: var(--text-primary);
-}
-.photo-raw {
-  min-height: 92px;
-  font-size: 0.78rem;
 }
 
 /* ============================================================
@@ -1724,7 +1671,6 @@ body {
 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .charts-grid { grid-template-columns: 1fr; }
   .record-item {
     grid-template-columns: 1fr 1fr;
     gap: 10px;
@@ -2128,12 +2074,6 @@ body {
     width: 100%;
     justify-content: center;
     min-height: 44px;
-  }
-  .photo-mode-btn {
-    min-height: 44px;
-  }
-  .photo-result-grid {
-    grid-template-columns: 1fr;
   }
   .modal-footer {
     position: sticky;

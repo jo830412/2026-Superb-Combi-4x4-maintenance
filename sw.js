@@ -12,8 +12,7 @@ const APP_SHELL = [
   "./icons/apple-touch-icon.png"
 ];
 const CDN_LIBRARIES = [
-  "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js",
-  "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"
+  "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
 ];
 const NETWORK_TIMEOUT_MS = 3000;
 
