@@ -848,8 +848,20 @@ body {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.data-quality-open {
+.data-quality-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 8px;
+}
+.data-quality-ignored {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
 }
 .data-quality-empty {
   color: var(--text-secondary);
@@ -1816,6 +1828,8 @@ body {
   }
   .dashboard-hero-actions .btn,
   .dashboard-next-action,
+  .data-quality-actions .btn,
+  .data-quality-ignored .btn,
   .section-heading .btn,
   .overview-record,
   .more-status > summary { min-height: 44px; }
