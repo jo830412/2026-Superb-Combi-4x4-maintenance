@@ -13,7 +13,7 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.20.1";
+const APP_VERSION = "v2026.10.20.2";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const IGNORED_QUALITY_ISSUES_KEY = "newSuperbIgnoredQualityIssues_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
@@ -1576,7 +1576,7 @@ function buildMonthTrackerState(rule, latest, today) {
 
 // 定期保養：保養類別（排除換位、定位、變速箱等專項），或提到換機油的保養／更換／維修紀錄。
 const ROUTINE_SERVICE_PATTERN = /定期保養|機油|小保養|大保養|[0-9][0-9,]*\s*(?:公里|km|k)\s*保養/i;
-const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|變速箱|DSG|冷氣|空調|電瓶|煞車|來令片|雨刷|燈泡|水箱|火星塞|空氣濾芯|空濾|四驅|Haldex/i;
+const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|平衡|胎壓|變速箱|DSG|冷氣|空調|冷媒|冷卻液|電瓶|煞車|來令片|雨刷|燈泡|水箱|火星塞|空氣濾芯|空濾|節氣門|噴油嘴|積碳|四驅|Haldex|鍍膜|打蠟|洗車|美容/i;
 
 function isRoutineMaintenanceRecord(record) {
   if (!record || isMileageUpdateRecord(record)) return false;
