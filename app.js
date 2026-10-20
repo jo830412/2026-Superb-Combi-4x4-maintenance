@@ -1576,7 +1576,7 @@ function buildMonthTrackerState(rule, latest, today) {
 
 // 定期保養：保養類別（排除換位、定位、變速箱等專項），或提到換機油的保養／更換／維修紀錄。
 const ROUTINE_SERVICE_PATTERN = /定期保養|機油|小保養|大保養|[0-9][0-9,]*\s*(?:公里|km|k)\s*保養/i;
-const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|變速箱|DSG|冷氣|空調|電瓶|煞車|來令片|雨刷|燈泡|水箱|火星塞|空氣濾芯|空濾|四驅|Haldex/i;
+const SPECIFIC_SERVICE_PATTERN = /輪胎|換位|定位|平衡|胎壓|變速箱|DSG|冷氣|空調|冷媒|冷卻液|電瓶|煞車|來令片|雨刷|燈泡|水箱|火星塞|空氣濾芯|空濾|節氣門|噴油嘴|積碳|四驅|Haldex|鍍膜|打蠟|洗車|美容/i;
 
 function isRoutineMaintenanceRecord(record) {
   if (!record || isMileageUpdateRecord(record)) return false;

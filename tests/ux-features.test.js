@@ -661,6 +661,21 @@ test("fuel intervals marked 沒問題 lose their 待確認 flag", () => {
   assert.doesNotMatch(element("fuelLogTableBody").innerHTML, /待確認/);
 });
 
+test("standalone non-oil 保養 items do not restart the 7,500 km countdown", () => {
+  const { api } = loadApp({ today: TODAY });
+  const service = detail => ({ date: "2026-10-15", mileage: 7000, category: "保養", cost: 1200, detail, note: "" });
+
+  for (const detail of ["四輪平衡", "胎壓檢查", "冷媒補充", "冷卻液更換", "節氣門清潔", "噴油嘴清潔", "鍍膜", "洗車"]) {
+    assert.equal(api.isRoutineMaintenanceRecord(service(detail)), false, detail);
+  }
+  // 有寫到定期保養或機油的仍算一次定期保養。
+  assert.equal(api.isRoutineMaintenanceRecord(service("定期保養：機油、機油芯、冷卻液檢查")), true);
+  assert.equal(api.isRoutineMaintenanceRecord(service("保養")), true);
+
+  api.setRecords([fuel("2026-10-18", 7306, 50, 1600), service("四輪平衡")]);
+  assert.equal(api.getMaintenanceSchedule(api.now()).dueMileage, 7500);
+});
+
 test("same-day purchases with different prices are not flagged as duplicates", () => {
   const { api } = loadApp({ today: TODAY });
   const tint = { date: "2026-05-28", mileage: 1, category: "其他", cost: 20000, detail: "隔熱紙", note: "" };
