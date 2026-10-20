@@ -605,3 +605,72 @@ test("spark plugs and the air filter follow km unless their deadline comes first
     assert.match(html, new RegExp(`<option value="${key}">`), key);
   }
 });
+
+test("a data-quality warning marked 沒問題 stays hidden until its numbers change", () => {
+  const localStore = new Map();
+  const { api, element } = loadApp({ today: TODAY, localStore });
+  const regression = [
+    fuel("2026-07-02", 2000, 50, 1700),
+    { date: "2026-07-03", mileage: 1981, category: "其他", cost: 0, detail: "目前里程更新", note: "" }
+  ];
+  api.setRecords(regression);
+  api.renderDataQualityPanel();
+  const panel = () => element("dataQualityPanel").innerHTML;
+  const id = panel().match(/data-quality-ignore="([^"]+)"/)[1];
+
+  api.ignoreQualityIssue(id);
+  assert.doesNotMatch(panel(), /里程比前一筆紀錄低/);
+  assert.match(panel(), /已標記沒問題 1 項/);
+  assert.deepEqual(JSON.parse(localStore.get("newSuperbIgnoredQualityIssues_v1")), [id]);
+
+  element("toastAction").onclick();
+  assert.match(panel(), /里程比前一筆紀錄低/);
+
+  // 改了里程但仍然倒退：數字不同，視為新的提醒。
+  api.ignoreQualityIssue(id);
+  api.setRecords([regression[0], { ...regression[1], mileage: 1990 }]);
+  api.renderDataQualityPanel();
+  assert.match(panel(), /1,990 km，低於先前的 2,000 km/);
+
+  // 重新開啟後仍記得；「全部重新顯示」會清掉。
+  const reloaded = loadApp({ today: TODAY, localStore });
+  reloaded.api.setRecords(regression);
+  reloaded.api.renderDataQualityPanel();
+  assert.doesNotMatch(reloaded.element("dataQualityPanel").innerHTML, /里程比前一筆紀錄低/);
+  reloaded.api.restoreIgnoredQualityIssues();
+  assert.match(reloaded.element("dataQualityPanel").innerHTML, /里程比前一筆紀錄低/);
+});
+
+test("fuel intervals marked 沒問題 lose their 待確認 flag", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([
+    fuel("2026-08-01", 1000, 40, 1200),
+    fuel("2026-08-08", 1500, 40, 1200),
+    fuel("2026-08-15", 2000, 40, 1200),
+    fuel("2026-08-22", 2500, 40, 1200),
+    fuel("2026-08-29", 3000, 40, 1200),
+    fuel("2026-09-05", 4000, 40, 1200),
+    fuel("2026-09-12", 4500, 40, 1200)
+  ]);
+  api.renderFuelLogSection();
+  assert.equal((element("fuelLogTableBody").innerHTML.match(/待確認/g) || []).length, 1);
+
+  const outlier = api.getDataQualityIssues().find(issue => issue.type === "fuel-outlier");
+  api.ignoreQualityIssue(api.getQualityIssueId(outlier));
+  api.renderFuelLogSection();
+  assert.doesNotMatch(element("fuelLogTableBody").innerHTML, /待確認/);
+});
+
+test("same-day purchases with different prices are not flagged as duplicates", () => {
+  const { api } = loadApp({ today: TODAY });
+  const tint = { date: "2026-05-28", mileage: 1, category: "其他", cost: 20000, detail: "隔熱紙", note: "" };
+  const dashcam = { ...tint, cost: 16000, detail: "行車記錄器" };
+
+  api.setRecords([tint, dashcam]);
+  assert.equal(api.getDataQualityIssues().filter(issue => issue.type === "duplicate").length, 0);
+  assert.equal(api.findLikelyDuplicates({ ...dashcam, detail: "行車記錄器（重複輸入）" }).length, 1);
+
+  api.setRecords([tint, { ...tint, note: "重複登錄" }]);
+  const duplicate = api.getDataQualityIssues().find(issue => issue.type === "duplicate");
+  assert.match(duplicate.detail, /其他 · NT\$ 20,000 有 2 筆/);
+});

@@ -13,8 +13,9 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.05.4";
+const APP_VERSION = "v2026.10.20.1";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
+const IGNORED_QUALITY_ISSUES_KEY = "newSuperbIgnoredQualityIssues_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
@@ -94,6 +95,7 @@ let pendingDuplicateSave = null;
 let backupDownloadSpy = null;
 let pendingCalendarTask = null;
 let renderedOwnerActions = [];
+let ignoredQualityIssues = loadIgnoredQualityIssues();
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -980,8 +982,9 @@ function confirmBackupRestore() {
   showToast(`已還原 ${records.length} 筆紀錄`);
 }
 
+// 日期、里程、類別、金額都相同才像重複；同一天買了不同價錢的東西不算。
 function getDuplicateKey(value) {
-  return [value.date, value.mileage ?? "", value.category]
+  return [value.date, value.mileage ?? "", value.category, asNumber(value.cost)]
     .map(part => String(part).trim())
     .join("|");
 }
@@ -1282,7 +1285,7 @@ function getDuplicateRecordIssues() {
         type: "duplicate",
         date: record.date || "",
         title: "可能重複的紀錄",
-        detail: `${record.date || "未填日期"} · ${Number.isFinite(Number(record.mileage)) && record.mileage != null ? Number(record.mileage).toLocaleString("zh-TW") : "—"} km · ${record.category || "其他"} 有 ${indexes.length} 筆，請確認是否重複登錄。`,
+        detail: `${record.date || "未填日期"} · ${Number.isFinite(Number(record.mileage)) && record.mileage != null ? Number(record.mileage).toLocaleString("zh-TW") : "—"} km · ${record.category || "其他"} · ${formatCost(asNumber(record.cost))} 有 ${indexes.length} 筆，請確認是否重複登錄。`,
         key: "duplicate|" + key,
         recordIndex: indexes[indexes.length - 1]
       };
@@ -2461,22 +2464,67 @@ function showUpgradeCostList() {
   list.scrollIntoView?.({ block: "start" });
 }
 
+// 看過沒問題的提醒記在這台裝置上；內容一變（例如改了里程）就視為新的提醒重新出現。
+function getQualityIssueId(issue) {
+  return `${issue.key}|${issue.detail}`;
+}
+function loadIgnoredQualityIssues() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(IGNORED_QUALITY_ISSUES_KEY) || "[]");
+    return new Set(Array.isArray(stored) ? stored.filter(id => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+function setQualityIssuesIgnored(ids, ignored) {
+  ids.forEach(id => ignored ? ignoredQualityIssues.add(id) : ignoredQualityIssues.delete(id));
+  try {
+    localStorage.setItem(IGNORED_QUALITY_ISSUES_KEY, JSON.stringify([...ignoredQualityIssues]));
+  } catch (error) {
+    // 無痕模式等情況存不了，只影響下次開啟。
+  }
+  refresh();
+}
+function isQualityIssueIgnored(issue) {
+  return ignoredQualityIssues.has(getQualityIssueId(issue));
+}
+function getOpenDataQualityIssues() {
+  return getDataQualityIssues().filter(issue => !isQualityIssueIgnored(issue));
+}
+function ignoreQualityIssue(id) {
+  setQualityIssuesIgnored([id], true);
+  showToast("已標記沒問題，這則提醒不再顯示", { label: "復原", onClick: () => setQualityIssuesIgnored([id], false) });
+}
+function restoreIgnoredQualityIssues() {
+  setQualityIssuesIgnored([...ignoredQualityIssues], false);
+}
+
 function renderDataQualityPanel() {
   const panel = document.getElementById("dataQualityPanel");
   if (!panel) return;
-  const issues = [...getDataQualityIssues()].sort((a, b) => b.date.localeCompare(a.date));
+  const allIssues = getDataQualityIssues();
+  const issues = getOpenDataQualityIssues().sort((a, b) => b.date.localeCompare(a.date));
+  const ignoredCount = allIssues.length - issues.length;
   const summary = issues.length ? `${issues.length} 項待確認` : "未發現明顯異常";
   const content = issues.length
     ? `<div class="data-quality-list">${issues.map(issue => `
         <div class="data-quality-item">
           <strong>${escapeHtml(issue.title)}</strong>
           <span>${escapeHtml(issue.detail)}</span>
-          ${Number.isInteger(issue.recordIndex) && issue.recordIndex >= 0
-            ? `<button class="btn btn-ghost btn-sm data-quality-open" type="button" data-quality-record="${issue.recordIndex}">開啟紀錄</button>`
-            : ""}
+          <div class="data-quality-actions">
+            ${Number.isInteger(issue.recordIndex) && issue.recordIndex >= 0
+              ? `<button class="btn btn-ghost btn-sm" type="button" data-quality-record="${issue.recordIndex}">開啟紀錄</button>`
+              : ""}
+            <button class="btn btn-ghost btn-sm" type="button" data-quality-ignore="${escapeHtml(getQualityIssueId(issue))}">沒問題</button>
+          </div>
         </div>
       `).join("")}</div>`
-    : `<div class="data-quality-empty">目前的日期、里程、重複紀錄與加滿油耗區間沒有明顯異常。</div>`;
+    : `<div class="data-quality-empty">${ignoredCount
+      ? "沒有待確認的項目。"
+      : "目前的日期、里程、重複紀錄與加滿油耗區間沒有明顯異常。"}</div>`;
+  const ignoredNote = ignoredCount
+    ? `<div class="data-quality-ignored"><span>已標記沒問題 ${ignoredCount} 項</span><button class="btn btn-ghost btn-sm" type="button" data-quality-restore>全部重新顯示</button></div>`
+    : "";
 
   panel.innerHTML = `
     <div class="data-quality-header">
@@ -2484,6 +2532,7 @@ function renderDataQualityPanel() {
       <div class="data-quality-summary">${escapeHtml(summary)}</div>
     </div>
     ${content}
+    ${ignoredNote}
   `;
 }
 
@@ -2654,7 +2703,7 @@ function buildFuelTrendChart() {
 
   const theme = getChartTheme();
   const suspiciousKeys = new Set(
-    getDataQualityIssues().filter(issue => issue.type === "fuel-outlier").map(issue => issue.key)
+    getOpenDataQualityIssues().filter(issue => issue.type === "fuel-outlier").map(issue => issue.key)
   );
   const isSuspicious = segment => suspiciousKeys.has(`fuel|${segment.date}|${segment.mileage}`);
   const pointColors = segments.map(segment => isSuspicious(segment) ? theme.warning : theme.series);
@@ -4229,8 +4278,9 @@ function renderFuelLogSection() {
   const segmentMap = new Map(
     fuelStats.segments.map(segment => [`${segment.date}|${segment.mileage}`, segment])
   );
+  // 標記沒問題的區間不再顯示「待確認」。
   const suspiciousFuelKeys = new Set(
-    getDataQualityIssues()
+    getOpenDataQualityIssues()
       .filter(issue => issue.type === "fuel-outlier")
       .map(issue => issue.key)
   );
@@ -4511,8 +4561,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 資料檢查：直接開啟有問題的那筆紀錄
   document.getElementById("dataQualityPanel").addEventListener("click", event => {
-    const button = event.target.closest("[data-quality-record]");
-    if (button) openEditModal(Number(button.dataset.qualityRecord));
+    const openButton = event.target.closest("[data-quality-record]");
+    const ignoreButton = event.target.closest("[data-quality-ignore]");
+    if (openButton) openEditModal(Number(openButton.dataset.qualityRecord));
+    else if (ignoreButton) ignoreQualityIssue(ignoreButton.dataset.qualityIgnore);
+    else if (event.target.closest("[data-quality-restore]")) restoreIgnoredQualityIssues();
   });
 
   // 類別篩選 Pills
