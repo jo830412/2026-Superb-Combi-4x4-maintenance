@@ -689,3 +689,65 @@ test("same-day purchases with different prices are not flagged as duplicates", (
   const duplicate = api.getDataQualityIssues().find(issue => issue.type === "duplicate");
   assert.match(duplicate.detail, /其他 · NT\$ 20,000 有 2 筆/);
 });
+
+// 每 500 km 加 40 L（12.5 km/L）的六個區間。
+function steadyFills() {
+  return [
+    fuel("2026-08-01", 1000, 40, 1200),
+    fuel("2026-08-08", 1500, 40, 1200),
+    fuel("2026-08-15", 2000, 40, 1200),
+    fuel("2026-08-22", 2500, 40, 1200),
+    fuel("2026-08-29", 3000, 40, 1200),
+    fuel("2026-09-05", 3500, 40, 1200),
+    fuel("2026-09-12", 4000, 40, 1200)
+  ];
+}
+
+test("the fuel average leaves out abnormal intervals", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([...steadyFills(), fuel("2026-09-19", 5000, 40, 1200)]);
+
+  const stats = api.getFuelStats();
+  assert.equal(stats.averageKmPerLiter, 12.5);
+  assert.equal(stats.excludedSegmentCount, 1);
+  api.renderFuelLogSection();
+  assert.match(element("fuelLogSummary").textContent, /平均 12\.5 km\/L（不含 1 段異常）/);
+});
+
+test("saving a full fill with an implausible km/L needs a second tap", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords(steadyFills());
+  const submitter = createElement();
+
+  api.openFuelLogModal({ skipPriceLoad: true });
+  element("fuelLogMileageInput").value = "5000";
+  element("fuelLogLitersInput").value = "40";
+  element("fuelLogUnitPriceInput").value = "34";
+  api.updateFuelLogMileageHint();
+  assert.match(element("fuelLogMileageHint").textContent, /換算 25\.0 km\/L，明顯高於其他加滿區間（平常約 12\.5 km\/L）/);
+
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter });
+  assert.equal(api.getRecords().length, 7);
+  assert.match(element("fuelLogMessage").textContent, /可能漏記一次加油、上次沒加滿，或里程、公升打錯；確認無誤請再按一次儲存/);
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter });
+  assert.equal(api.getRecords().length, 8);
+});
+
+test("a normal fill shows its km/L and counts liters of fills that were not full", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([
+    ...steadyFills(),
+    fuel("2026-09-20", 4250, 20, 600, { detail: "加油｜98｜20.00 L｜未加滿" })
+  ]);
+
+  api.openFuelLogModal({ skipPriceLoad: true });
+  element("fuelLogMileageInput").value = "4500";
+  element("fuelLogLitersInput").value = "20";
+  element("fuelLogUnitPriceInput").value = "34";
+  api.updateFuelLogMileageHint();
+  // 500 km ÷（20 + 20）L：沒加滿那次的公升也要算進去。
+  assert.match(element("fuelLogMileageHint").textContent, /換算約 12\.5 km\/L/);
+
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.equal(api.getRecords().length, 9);
+});

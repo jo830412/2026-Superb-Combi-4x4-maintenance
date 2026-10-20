@@ -1204,15 +1204,25 @@ function computeFuelStats() {
     }
   });
 
-  const totalDistance = segments.reduce((sum, segment) => sum + segment.distance, 0);
-  const totalLiters = segments.reduce((sum, segment) => sum + segment.liters, 0);
-  const pricedSegments = segments.filter(segment => segment.costPerKm != null);
+  // 油耗明顯異常的區間（多半是漏記一次加油或沒加滿）不列入平均，避免把平均拉高或拉低。
+  const medianKmPerLiter = segments.length >= 5 ? getMedian(segments.map(segment => segment.kmPerLiter)) : null;
+  segments.forEach(segment => {
+    segment.suspicious = getFuelSegmentQuality(segment, medianKmPerLiter).suspicious;
+  });
+  const counted = segments.some(segment => !segment.suspicious)
+    ? segments.filter(segment => !segment.suspicious)
+    : segments;
+  const totalDistance = counted.reduce((sum, segment) => sum + segment.distance, 0);
+  const totalLiters = counted.reduce((sum, segment) => sum + segment.liters, 0);
+  const pricedSegments = counted.filter(segment => segment.costPerKm != null);
   const pricedDistance = pricedSegments.reduce((sum, segment) => sum + segment.distance, 0);
   const pricedCost = pricedSegments.reduce((sum, segment) => sum + segment.cost, 0);
   return {
     logs,
     segments,
     totalCost,
+    medianKmPerLiter,
+    excludedSegmentCount: segments.length - counted.length,
     averageKmPerLiter: totalDistance > 0 && totalLiters > 0 ? totalDistance / totalLiters : null,
     latestKmPerLiter: segments.length ? segments[segments.length - 1].kmPerLiter : null,
     averageCostPerKm: pricedDistance > 0 ? pricedCost / pricedDistance : null
@@ -1299,9 +1309,8 @@ function computeDataQualityIssues() {
   const fuelStats = getFuelStats();
   if (fuelStats.segments.length < 5) return issues;
 
-  const medianKmPerLiter = getMedian(fuelStats.segments.map(segment => segment.kmPerLiter));
   fuelStats.segments.forEach(segment => {
-    const quality = getFuelSegmentQuality(segment, medianKmPerLiter);
+    const quality = getFuelSegmentQuality(segment, fuelStats.medianKmPerLiter);
     if (!quality.suspicious) return;
     issues.push({
       type: "fuel-outlier",
@@ -3455,6 +3464,41 @@ function getFuelLogMileageWarning(mileage, date) {
   return getFuelGapWarning(mileage, previous) || getMileageJumpWarning(mileage, date, { excludeIndex: fuelEditIndex });
 }
 
+// 這次加滿換算的油耗：從上一次加滿起算，中間沒加滿的公升數也算進去。
+function getFuelEconomyCheck({ date, mileage, liters, fullTank, excludeIndex = -1 }) {
+  if (!fullTank || !date || !Number.isFinite(mileage) || !Number.isFinite(liters) || liters <= 0) return null;
+  const earlier = getFuelLogs().filter(log =>
+    log.sourceIndex !== excludeIndex && compareFuelLogsOldestFirst(log, { date, mileage, sourceIndex: Infinity }) < 0
+  );
+  const anchorIndex = earlier.map(log => log.fullTank).lastIndexOf(true);
+  if (anchorIndex < 0) return null;
+  const anchor = earlier[anchorIndex];
+  const distance = mileage - anchor.mileage;
+  const totalLiters = earlier.slice(anchorIndex + 1).reduce((sum, log) => sum + log.liters, 0) + liters;
+  if (distance <= 0) return null;
+  const kmPerLiter = distance / totalLiters;
+  const median = getFuelStats().medianKmPerLiter;
+  return { distance, totalLiters, kmPerLiter, median, quality: getFuelSegmentQuality({ kmPerLiter }, median) };
+}
+
+// 換算的油耗明顯異常時先請使用者確認：多半是漏記一次加油、上次沒加滿，或里程、公升打錯。
+function getFuelEconomyWarning(check) {
+  if (!check?.quality.suspicious) return "";
+  return `距上次加滿 ${check.distance.toLocaleString("zh-TW")} km、共加 ${check.totalLiters.toFixed(2)} L，換算 ${check.kmPerLiter.toFixed(1)} km/L，${check.quality.reason}（平常約 ${check.median.toFixed(1)} km/L）。可能漏記一次加油、上次沒加滿，或里程、公升打錯`;
+}
+
+function getFuelLogFormEconomyCheck() {
+  const litersValue = parseDecimalInput(document.getElementById("fuelLogLitersInput").value);
+  const liters = Number.isFinite(litersValue) && litersValue > 0 ? litersValue : getFuelLogInferredLiters()?.liters;
+  return getFuelEconomyCheck({
+    date: document.getElementById("fuelLogDateInput").value,
+    mileage: parseInt(document.getElementById("fuelLogMileageInput").value, 10),
+    liters,
+    fullTank: document.getElementById("fuelLogFullTankInput").value === "yes",
+    excludeIndex: fuelEditIndex
+  });
+}
+
 function updateFuelLogMileageHint() {
   const el = document.getElementById("fuelLogMileageHint");
   if (!el) return;
@@ -3471,7 +3515,9 @@ function updateFuelLogMileageHint() {
         : `比上次少 ${Math.abs(gap).toLocaleString("zh-TW")} km`);
     }
   }
-  const warning = getFuelLogMileageWarning(mileage, date);
+  const economy = getFuelLogFormEconomyCheck();
+  if (economy && !economy.quality.suspicious) parts.push(`換算約 ${economy.kmPerLiter.toFixed(1)} km/L`);
+  const warning = getFuelLogMileageWarning(mileage, date) || getFuelEconomyWarning(economy);
   el.textContent = [parts.join("，"), warning].filter(Boolean).join("。");
   el.classList.toggle("form-help-warn", Boolean(warning) || Boolean(previous && mileage < previous.mileage));
 }
@@ -4023,14 +4069,18 @@ function handleFuelLogSubmit(e) {
     showFuelLogMessage("error", "油費不能是負數。");
     return;
   }
+  const economyWarning = getFuelEconomyWarning(
+    getFuelEconomyCheck({ date, mileage, liters, fullTank, excludeIndex: fuelEditIndex })
+  );
   if (maxMileage > 0 && mileage < maxMileage && !saveBtn.dataset.confirmedMileage) {
-    showFuelLogMessage("info", "這筆里程低於目前最高里程；若是在補登舊加油紀錄，請再按一次儲存。");
+    showFuelLogMessage("info", "這筆里程低於目前最高里程；若是在補登舊加油紀錄，請再按一次儲存。" +
+      (economyWarning ? `另外，${economyWarning}。` : ""));
     saveBtn.dataset.confirmedMileage = "true";
     return;
   }
-  const mileageWarning = getFuelLogMileageWarning(mileage, date);
-  if (mileageWarning && !saveBtn.dataset.confirmedMileage) {
-    showFuelLogMessage("info", mileageWarning + "；確認無誤請再按一次儲存。");
+  const confirmWarning = [getFuelLogMileageWarning(mileage, date), economyWarning].filter(Boolean).join("。");
+  if (confirmWarning && !saveBtn.dataset.confirmedMileage) {
+    showFuelLogMessage("info", confirmWarning + "；確認無誤請再按一次儲存。");
     saveBtn.dataset.confirmedMileage = "true";
     return;
   }
@@ -4285,9 +4335,10 @@ function renderFuelLogSection() {
       .map(issue => issue.key)
   );
   if (trend) trend.hidden = fuelStats.segments.length < 2;
+  const excludedNote = fuelStats.excludedSegmentCount ? `（不含 ${fuelStats.excludedSegmentCount} 段異常）` : "";
   if (trendSummary) {
     trendSummary.textContent = [
-      fuelStats.averageKmPerLiter ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L` : "",
+      fuelStats.averageKmPerLiter ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L${excludedNote}` : "",
       fuelStats.averageCostPerKm ? `每公里 NT$ ${fuelStats.averageCostPerKm.toFixed(2)}` : ""
     ].filter(Boolean).join(" · ");
   }
@@ -4304,7 +4355,7 @@ function renderFuelLogSection() {
     `共 ${logs.length} 筆`,
     `累計 ${formatCost(fuelStats.totalCost)}`,
     fuelStats.averageKmPerLiter
-      ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L`
+      ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L${excludedNote}`
       : "油耗待第二次加滿後計算",
     fuelStats.averageCostPerKm ? `每公里 NT$ ${fuelStats.averageCostPerKm.toFixed(2)}` : ""
   ].filter(Boolean).join(" · ");
@@ -4509,19 +4560,19 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById(id).addEventListener("input", () => {
       clearFuelLogMessage();
       updateFuelLogCostFromDiscount();
+      updateFuelLogMileageHint();
     });
   });
   document.getElementById("fuelLogTypeInput").addEventListener("change", () => {
     clearFuelLogMessage();
     loadFuelPriceForSelectedType({ force: true });
   });
-  document.getElementById("fuelLogCostInput").addEventListener("input", () => {
-    clearFuelLogMessage();
-    updateFuelLogCostFromDiscount({ preserveCostInput: true });
-  });
-  document.getElementById("fuelLogCostInput").addEventListener("change", () => {
-    clearFuelLogMessage();
-    updateFuelLogCostFromDiscount({ preserveCostInput: true });
+  ["input", "change"].forEach(type => {
+    document.getElementById("fuelLogCostInput").addEventListener(type, () => {
+      clearFuelLogMessage();
+      updateFuelLogCostFromDiscount({ preserveCostInput: true });
+      updateFuelLogMileageHint();
+    });
   });
   ["fuelLogDateInput", "fuelLogMileageInput", "fuelLogTypeInput", "fuelLogFullTankInput", "fuelLogNoteInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", clearFuelLogMessage);
@@ -4530,6 +4581,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ["fuelLogDateInput", "fuelLogMileageInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", updateFuelLogMileageHint);
   });
+  document.getElementById("fuelLogFullTankInput").addEventListener("change", updateFuelLogMileageHint);
 
   // 汽油精添加
   document.getElementById("fuelModalClose").addEventListener("click", closeFuelModal);
