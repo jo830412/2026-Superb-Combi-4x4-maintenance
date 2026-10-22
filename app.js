@@ -13,7 +13,7 @@ const SYNC_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 const RECORD_EDITOR_MODAL_IDS = ["modal", "fuelLogModal", "mileageModal", "fuelModal", "deleteModal", "duplicateModal", "backupRestoreModal"];
 const BACKUP_FORMAT = "superb-maintenance-backup";
 const BACKUP_VERSION = 1;
-const APP_VERSION = "v2026.10.20.3";
+const APP_VERSION = "v2026.10.22.1";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const IGNORED_QUALITY_ISSUES_KEY = "newSuperbIgnoredQualityIssues_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
@@ -34,6 +34,50 @@ const SERVICE_CATEGORIES = ["保養", "維修", "更換", "改裝升級", "其�
 const LEGAL_CATEGORIES = ["檢驗/稅費", "其他"];
 const DEFAULT_FUEL_TYPE = "98";
 const DEFAULT_FUEL_DISCOUNT = 1.8;
+// 加油站・付款優惠：選了就帶入每公升降價、刷卡回饋、F幣與加油站，實際降價以加油機為準，可再手動修改。
+// 國泰世華 CUBE（2026/6/1–12/31）在台塑體系加油站自助加汽油每公升降 1.2 元起；權益切到「台塑家」再回饋
+// 2% 小樹點（含一般消費 0.3%）。綁定台塑石油 Pay 支付另回饋每公升 1.2 F幣（台塑石油、台亞、福懋），
+// 7/1 起週三加滿 25 公升用 App 的週三加油券再現折 15 元。
+// 油費記加油站實收的金額（降價、加油券折抵後）；小樹點與 F幣 入帳後才拿到，另外記成回饋。
+const FUEL_OFFERS = [
+  {
+    id: "formosa-cube",
+    label: "台塑自助・刷 CUBE 卡（台塑家）",
+    station: "台塑自助",
+    brands: ["台塑", "台亞", "福懋", "速邁樂"],
+    discount: 1.2,
+    rebatePercent: 2,
+    fCoinPerLiter: 0,
+    validFrom: "2026-06-01",
+    validUntil: "2026-12-31",
+    hint: "台塑石油、台亞、福懋、統一速邁樂自助加汽油每公升降 1.2 元起；加油前先在 CUBE App 切到「台塑家」才有 2% 小樹點（每天限切換一次）。各站售價可能不同，以加油機為準。"
+  },
+  {
+    id: "formosa-pay",
+    label: "台塑自助・台塑石油 Pay（綁 CUBE）",
+    station: "台塑自助",
+    brands: ["台塑", "台亞", "福懋"],
+    discount: 1.2,
+    rebatePercent: 2,
+    fCoinPerLiter: 1.2,
+    wednesdayCoupon: { amount: 15, minLiters: 25, validFrom: "2026-07-01", validUntil: "2026-12-31" },
+    validFrom: "2026-06-01",
+    validUntil: "2026-12-31",
+    hint: "限台塑石油、台亞、福懋（速邁樂不能用台塑石油 Pay）。每公升降 1.2 元起再回饋 1.2 F幣，加油機上要取消「累 F幣」才會同時降價；CUBE App 切到「台塑家」再 2% 小樹點。"
+  },
+  {
+    id: "npc-self",
+    label: "全國加油站自助",
+    station: "全國加油站自助",
+    brands: ["全國加油站"],
+    discount: DEFAULT_FUEL_DISCOUNT,
+    rebatePercent: 0,
+    fCoinPerLiter: 0,
+    hint: ""
+  }
+];
+const CUSTOM_FUEL_OFFER_ID = "custom";
+const FUEL_STATION_PATTERN = /全國加油站|全國|中油|台塑|台亞|山隆|福懋|統一精工|統一速邁樂|速邁樂/;
 const FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 const FUEL_PRICE_CACHE_KEY = "newSuperbFuelPrices_v2";
 const FUEL_PRICE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -1142,22 +1186,49 @@ function parseFuelLog(r, sourceIndex = -1) {
   const unitPriceMatch = detail.match(/牌告\s*([0-9]+(?:\.[0-9]+)?)/);
   const discountMatch = detail.match(/優惠\s*([0-9]+(?:\.[0-9]+)?)/);
   const netPriceMatch = detail.match(/實付\s*([0-9]+(?:\.[0-9]+)?)/);
+  const rebateMatch = detail.match(/回饋\s*([0-9]+(?:\.[0-9]+)?)\s*%/);
+  const couponMatch = detail.match(/加油券\s*([0-9]+(?:\.[0-9]+)?)\s*元/);
+  const fCoinMatch = detail.match(/F幣\s*([0-9]+(?:\.[0-9]+)?)\s*點\/L/);
   const mileage = Number(r.mileage);
   const liters = litersMatch ? parseFloat(litersMatch[1]) : NaN;
   if (!Number.isFinite(mileage) || mileage <= 0 || !Number.isFinite(liters) || liters <= 0) return null;
+  const cost = asNumber(r.cost);
+  const rebatePercent = rebateMatch ? parseFloat(rebateMatch[1]) : 0;
+  const fCoinPerLiter = fCoinMatch ? parseFloat(fCoinMatch[1]) : 0;
   return {
     date: r.date || "",
     mileage,
     liters,
-    cost: asNumber(r.cost),
+    cost,
     fullTank: parseFuelLogFullTank(detail),
     fuelType: (detail.split("｜")[1] || "").trim(),
     unitPrice: unitPriceMatch ? parseFloat(unitPriceMatch[1]) : null,
     discount: discountMatch ? parseFloat(discountMatch[1]) : null,
     netPrice: netPriceMatch ? parseFloat(netPriceMatch[1]) : null,
+    coupon: couponMatch ? parseFloat(couponMatch[1]) : 0,
+    rebatePercent,
+    rebate: getFuelRebateAmount(cost, rebatePercent),
+    fCoinPerLiter,
+    fCoins: getFuelCoinAmount(liters, fCoinPerLiter),
     note: r.note || "",
     sourceIndex
   };
+}
+// 刷卡回饋（例如小樹點）以刷卡金額計算、四捨五入到元。
+function getFuelRebateAmount(cost, rebatePercent) {
+  return cost > 0 && rebatePercent > 0 ? Math.round(cost * rebatePercent / 100) : 0;
+}
+// F幣：公升數（到小數第二位）乘每公升點數，四捨五入到小數第二位；1 點可折抵 1 元油錢。
+function getFuelCoinAmount(liters, fCoinPerLiter) {
+  if (!(liters > 0) || !(fCoinPerLiter > 0)) return 0;
+  return Math.round(Math.round(liters * 100) * fCoinPerLiter) / 100;
+}
+// 比例、每公升點數這類短數字：最多兩位小數、不補零（2、1.2、0.75）。
+function formatRate(value) {
+  return String(Number((Number(value) || 0).toFixed(2)));
+}
+function formatFuelCoins(value) {
+  return (Math.round(value * 10) / 10).toLocaleString("zh-TW");
 }
 function getFuelLogs() {
   return records
@@ -3353,28 +3424,187 @@ function getFuelLogCalculatedCost() {
   const liters = parseDecimalInput(document.getElementById("fuelLogLitersInput").value);
   const unitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
   const discount = parseDecimalInput(document.getElementById("fuelLogDiscountInput").value) || 0;
+  const coupon = getFuelLogCoupon() || 0;
   if (!Number.isFinite(liters) || liters <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+  const netPrice = Math.max(unitPrice - discount, 0);
   return {
+    liters,
     unitPrice,
     discount,
-    netPrice: Math.max(unitPrice - discount, 0),
-    total: Math.round(liters * Math.max(unitPrice - discount, 0))
+    netPrice,
+    coupon,
+    total: Math.max(Math.round(liters * netPrice) - coupon, 0)
   };
+}
+
+// 回饋與加油券欄位：空白視為 0；不是 0 到 max 之間的數字回傳 null。
+function readFuelLogAmount(id, max) {
+  const text = String(document.getElementById(id).value ?? "").trim().replace(/[%％]$/, "");
+  if (!text) return 0;
+  const value = parseDecimalInput(text);
+  return Number.isFinite(value) && value >= 0 && value < max ? value : null;
+}
+function getFuelLogRebatePercent() {
+  return readFuelLogAmount("fuelLogRebateInput", 100);
+}
+function getFuelLogFCoinRate() {
+  return readFuelLogAmount("fuelLogFCoinInput", 10);
+}
+function getFuelLogCoupon() {
+  const value = readFuelLogAmount("fuelLogCouponInput", 10000);
+  return value === null ? null : Math.round(value);
+}
+
+// 試算回饋後的實際花費；小樹點與 F幣 入帳後才拿到，所以油費欄位仍是加油站實收的金額。
+function getFuelLogRebateSummary(charged, liters) {
+  const percent = getFuelLogRebatePercent();
+  const rebate = getFuelRebateAmount(charged, percent);
+  const fCoins = getFuelCoinAmount(liters, getFuelLogFCoinRate());
+  if (!rebate && !fCoins) return "";
+  const rewards = [
+    rebate ? `${formatRate(percent)}% 回饋約 NT$ ${rebate.toLocaleString("zh-TW")}` : "",
+    fCoins ? `F幣約 ${formatFuelCoins(fCoins)} 點` : ""
+  ].filter(Boolean).join("、");
+  const net = Math.round(charged - rebate - fCoins);
+  const perLiter = Number.isFinite(liters) && liters > 0 ? `（${(net / liters).toFixed(1)} 元/L）` : "";
+  return `；${rewards}，實際約 NT$ ${net.toLocaleString("zh-TW")}${perLiter}`;
+}
+
+// 加油站品牌：全國 → 全國加油站；統一精工、統一速邁樂 → 速邁樂。
+function getFuelStationBrand(text) {
+  const station = String(text || "").match(FUEL_STATION_PATTERN)?.[0] || "";
+  if (station === "全國") return "全國加油站";
+  return station === "統一精工" || station === "統一速邁樂" ? "速邁樂" : station;
+}
+
+// 依加油站、回饋比例與 F幣 找出符合的優惠；每公升降價各站可能不同（「1.2 元起」），
+// 加油券只有週三才有，這兩項都不拿來比對。
+function findFuelOffer(note, rebatePercent = null, fCoinPerLiter = null) {
+  const brand = getFuelStationBrand(note);
+  if (!brand) return null;
+  const matches = (value, wanted) => wanted == null || Math.abs(value - wanted) < 0.005;
+  return FUEL_OFFERS.find(offer => offer.brands.includes(brand) &&
+    matches(offer.rebatePercent, rebatePercent) && matches(offer.fCoinPerLiter, fCoinPerLiter)) || null;
+}
+
+// 把備註開頭的加油站換成優惠的加油站，其餘備註保留；已經是適用的加油站就不動。
+function replaceFuelStation(note, offer) {
+  const text = String(note || "").trim();
+  if (offer.brands.includes(getFuelStationBrand(text))) return text;
+  const match = text.match(FUEL_STATION_PATTERN);
+  if (!match) return text ? `${offer.station}，${text}` : offer.station;
+  let end = match.index + match[0].length;
+  if (text.startsWith("自助", end)) end += 2;
+  return text.slice(0, match.index) + offer.station + text.slice(end);
+}
+
+function getSelectedFuelOffer() {
+  const id = document.getElementById("fuelLogOfferInput").value;
+  return FUEL_OFFERS.find(offer => offer.id === id) || null;
+}
+
+function isWithinPeriod(date, { validFrom = "", validUntil = "" }) {
+  return Boolean(date) && (!validFrom || date >= validFrom) && (!validUntil || date <= validUntil);
+}
+
+// 週三加油券：選了有週三券的優惠、加油日是活動期間的週三，而且加 25 公升以上（還沒填公升也先算）時預設折抵。
+function getDefaultFuelCoupon() {
+  const coupon = getSelectedFuelOffer()?.wednesdayCoupon;
+  const date = document.getElementById("fuelLogDateInput").value;
+  if (!coupon || !isWithinPeriod(date, coupon) || parseDate(date)?.getDay() !== 3) return 0;
+  const liters = parseDecimalInput(document.getElementById("fuelLogLitersInput").value);
+  return Number.isFinite(liters) && liters > 0 && liters < coupon.minLiters ? 0 : coupon.amount;
+}
+
+// 自己改過加油券就不再自動帶；有改到回傳 true，好讓呼叫端重算油費。
+function refreshFuelCouponDefault() {
+  const input = document.getElementById("fuelLogCouponInput");
+  if (input.dataset.edited === "true") return false;
+  const next = String(getDefaultFuelCoupon());
+  if (String(input.value) === next) return false;
+  input.value = next;
+  return true;
+}
+
+function getFuelExtraOfferHint(offer) {
+  const notes = [];
+  const coupon = offer?.wednesdayCoupon;
+  const date = document.getElementById("fuelLogDateInput").value;
+  if (coupon && isWithinPeriod(date, coupon)) {
+    const rule = `週三加滿 ${coupon.minLiters} 公升用 App 的週三加油券再折 ${coupon.amount} 元`;
+    if (parseDate(date)?.getDay() !== 3) notes.push(rule + "。");
+    else if (getDefaultFuelCoupon()) notes.push(`加油日是週三：${rule}，沒用到請改成 0。`);
+    else notes.push(`未滿 ${coupon.minLiters} 公升，不能用週三加油券。`);
+  }
+  if (getFuelLogFCoinRate() > 0) notes.push("用 F幣折抵的那次，油費填折抵前的金額（F幣賺到時已算進回饋）。");
+  return notes.join("");
+}
+
+// 優惠說明、活動期間提醒，以及 F幣／加油券欄位：只有用得到或已經有值時才顯示。
+// 只在開表單或換優惠時收起欄位（settle），打字時不收，免得清空重打時欄位突然不見。
+function updateFuelOfferDetails({ settle = false } = {}) {
+  const hint = document.getElementById("fuelLogOfferHint");
+  if (!hint) return;
+  const offer = getSelectedFuelOffer();
+  const date = document.getElementById("fuelLogDateInput").value;
+  const outOfPeriod = Boolean(offer?.validUntil && date && !isWithinPeriod(date, offer));
+  if (outOfPeriod) {
+    const period = `${offer.validFrom.replace(/-/g, "/")}–${offer.validUntil.replace(/-/g, "/")}`;
+    hint.textContent = `這個優惠的活動期間是 ${period}，加油日不在期間內；請確認是否延長，或改成實際的折抵與回饋。`;
+  } else {
+    hint.textContent = offer ? offer.hint : "依實際優惠輸入每公升折抵、刷卡回饋、F幣與加油券。";
+  }
+  hint.classList.toggle("form-help-warn", outOfPeriod);
+
+  const extras = document.getElementById("fuelLogExtraOffer");
+  const usesExtras = !offer || offer.fCoinPerLiter > 0 || Boolean(offer.wednesdayCoupon) ||
+    getFuelLogFCoinRate() !== 0 || getFuelLogCoupon() !== 0;
+  if (usesExtras) extras.hidden = false;
+  else if (settle) extras.hidden = true;
+  document.getElementById("fuelLogExtraHint").textContent = getFuelExtraOfferHint(offer);
+}
+
+// 選單跟著加油站、回饋比例與 F幣 變；手動改每公升降價或加油券不影響。
+function syncFuelOfferSelect() {
+  const offer = findFuelOffer(
+    document.getElementById("fuelLogNoteInput").value,
+    getFuelLogRebatePercent(),
+    getFuelLogFCoinRate()
+  );
+  document.getElementById("fuelLogOfferInput").value = offer ? offer.id : CUSTOM_FUEL_OFFER_ID;
+  updateFuelOfferDetails();
+}
+
+function applyFuelOffer(id) {
+  const offer = FUEL_OFFERS.find(item => item.id === id);
+  document.getElementById("fuelLogOfferInput").value = offer ? offer.id : CUSTOM_FUEL_OFFER_ID;
+  if (offer) {
+    const noteInput = document.getElementById("fuelLogNoteInput");
+    document.getElementById("fuelLogDiscountInput").value = offer.discount.toFixed(1);
+    document.getElementById("fuelLogRebateInput").value = formatRate(offer.rebatePercent);
+    document.getElementById("fuelLogFCoinInput").value = formatRate(offer.fCoinPerLiter);
+    noteInput.value = replaceFuelStation(noteInput.value, offer);
+  }
+  refreshFuelCouponDefault();
+  updateFuelOfferDetails({ settle: true });
+  updateFuelLogCostFromDiscount();
 }
 
 function getFuelLogInferredLiters() {
   const cost = parseDecimalInput(document.getElementById("fuelLogCostInput").value);
   const unitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
   const discount = parseDecimalInput(document.getElementById("fuelLogDiscountInput").value) || 0;
+  const coupon = getFuelLogCoupon() || 0;
   const netPrice = Number.isFinite(unitPrice) ? Math.max(unitPrice - discount, 0) : 0;
   if (!Number.isFinite(cost) || cost <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0 || netPrice <= 0) {
     return null;
   }
   return {
-    liters: cost / netPrice,
+    liters: (cost + coupon) / netPrice,
     unitPrice,
     discount,
     netPrice,
+    coupon,
     total: Math.round(cost)
   };
 }
@@ -3388,9 +3618,12 @@ function updateFuelLogCostFromDiscount(options = {}) {
     if (!preserveCostInput) {
       costInput.value = calc.total;
     }
+    const charged = parseDecimalInput(costInput.value);
     hint.textContent =
-      "實付單價 " + calc.netPrice.toFixed(1) +
-      " 元/L，預估油費 NT$ " + calc.total.toLocaleString("zh-TW") +
+      "實付單價 " + calc.netPrice.toFixed(1) + " 元/L" +
+      (calc.coupon ? "，加油券折 " + calc.coupon.toLocaleString("zh-TW") + " 元" : "") +
+      "，預估油費 NT$ " + calc.total.toLocaleString("zh-TW") +
+      getFuelLogRebateSummary(Number.isFinite(charged) && charged > 0 ? Math.round(charged) : calc.total, calc.liters) +
       "；若發票金額不同可直接修改。";
     return;
   }
@@ -3400,7 +3633,9 @@ function updateFuelLogCostFromDiscount(options = {}) {
     hint.textContent =
       "實付單價 " + inferred.netPrice.toFixed(1) +
       " 元/L，會依油費 NT$ " + inferred.total.toLocaleString("zh-TW") +
-      " 反推約 " + inferred.liters.toFixed(2) + " L。";
+      (inferred.coupon ? "（加油券折 " + inferred.coupon.toLocaleString("zh-TW") + " 元後）" : "") +
+      " 反推約 " + inferred.liters.toFixed(2) + " L" +
+      getFuelLogRebateSummary(inferred.total, inferred.liters) + "。";
     return;
   }
 
@@ -3433,9 +3668,8 @@ function getPreviousFuelLog({ excludeIndex = -1, onOrBefore = "" } = {}) {
 
 function getDefaultFuelNote(log) {
   const note = String(log?.note || "");
-  const station = note.match(/全國加油站|全國|中油|台塑|台亞|山隆|福懋|統一精工|速邁樂/)?.[0];
-  if (!station) return "全國加油站自助";
-  const name = station === "全國" ? "全國加油站" : station;
+  const name = getFuelStationBrand(note);
+  if (!name) return "全國加油站自助";
   return note.includes("自助") ? name + "自助" : name;
 }
 
@@ -3548,6 +3782,9 @@ function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
   const lastFuel = editing ? null : getPreviousFuelLog();
   const defaultFuelType = ["92", "95", "98", "其他"].includes(lastFuel?.fuelType) ? lastFuel.fuelType : DEFAULT_FUEL_TYPE;
   const defaultDiscount = Number.isFinite(lastFuel?.discount) ? lastFuel.discount : DEFAULT_FUEL_DISCOUNT;
+  const rebatePercent = editing ? parsed?.rebatePercent : lastFuel?.rebatePercent;
+  const fCoinPerLiter = editing ? parsed?.fCoinPerLiter : lastFuel?.fCoinPerLiter;
+  const couponInput = document.getElementById("fuelLogCouponInput");
   fuelEditIndex = editing ? editIndex : -1;
   document.getElementById("fuelLogModalTitle").textContent = editing ? "編輯加油紀錄" : "新增加油紀錄";
   document.getElementById("fuelLogSaveBtn").textContent = editing ? "💾 儲存變更" : "💾 儲存加油";
@@ -3558,6 +3795,12 @@ function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
   document.getElementById("fuelLogDiscountInput").value = Number.isFinite(parsed?.discount)
     ? parsed.discount.toFixed(1)
     : (editing ? String(DEFAULT_FUEL_DISCOUNT) : defaultDiscount.toFixed(1));
+  document.getElementById("fuelLogRebateInput").value = formatRate(rebatePercent);
+  document.getElementById("fuelLogFCoinInput").value = formatRate(fCoinPerLiter);
+  // 編輯時保留原本的加油券；新增時依加油日與優惠自動帶入。
+  couponInput.value = formatRate(parsed?.coupon);
+  if (editing) couponInput.dataset.edited = "true";
+  else delete couponInput.dataset.edited;
   document.getElementById("fuelLogCostInput").value = editing ? (record.cost || "") : "";
   document.getElementById("fuelLogNetPriceHint").textContent = "輸入加油量與油價後會自動試算，實際付款金額可直接修改。";
   document.getElementById("fuelLogTypeInput").value = ["92", "95", "98", "其他"].includes(parsed?.fuelType)
@@ -3565,6 +3808,9 @@ function openFuelLogModal({ skipPriceLoad = false, editIndex = -1 } = {}) {
     : (editing ? DEFAULT_FUEL_TYPE : defaultFuelType);
   document.getElementById("fuelLogFullTankInput").value = parsed?.fullTank === false ? "no" : "yes";
   document.getElementById("fuelLogNoteInput").value = editing ? (record.note || "") : getDefaultFuelNote(lastFuel);
+  syncFuelOfferSelect();
+  refreshFuelCouponDefault();
+  updateFuelOfferDetails({ settle: true });
   setFuelPriceStatus(editing ? "已帶入原加油資料；修改後會重新試算金額。" : `預設 ${defaultFuelType}，會嘗試抓取全國加油站今日牌價。`);
   clearFuelLogMessage();
   const saveBtn = document.querySelector("#fuelLogForm button[type='submit']");
@@ -3778,6 +4024,24 @@ function getQuickFuelNote(text) {
   return station ? station[1] : "";
 }
 
+// 沒寫加油站、或上次的優惠也適用這家，就沿用上次加油的折抵與回饋；
+// 換到另一家有優惠的加油站用那家的優惠，沒有優惠的加油站不帶回饋與 F幣。
+function getQuickFuelPricing(note) {
+  const lastFuel = getPreviousFuelLog();
+  const last = {
+    discount: Number.isFinite(lastFuel?.discount) ? lastFuel.discount : DEFAULT_FUEL_DISCOUNT,
+    rebatePercent: lastFuel?.rebatePercent || 0,
+    fCoinPerLiter: lastFuel?.fCoinPerLiter || 0
+  };
+  const brand = getFuelStationBrand(note);
+  if (!brand) return last;
+  const lastOffer = lastFuel ? findFuelOffer(lastFuel.note, last.rebatePercent, last.fCoinPerLiter) : null;
+  if (lastOffer?.brands.includes(brand)) return last;
+  const offer = findFuelOffer(note);
+  if (!offer) return { discount: last.discount, rebatePercent: 0, fCoinPerLiter: 0 };
+  return { discount: offer.discount, rebatePercent: offer.rebatePercent, fCoinPerLiter: offer.fCoinPerLiter };
+}
+
 function hasQuickServiceSignal(text) {
   return /保養|維修|更換|換|輪胎|電瓶|煞車|機油|變速箱|保險|驗車|檢驗|牌照稅|燃料稅|洗車|美容|鍍膜|清潔|改裝|升級|汽油精|烤漆|鈑金|板金|刮傷/.test(text);
 }
@@ -3813,6 +4077,8 @@ function parseLocalRecordDraft(text) {
 
   if (isFuel) {
     if (!cost && !parseQuickLiters(raw)) return null;
+    const note = getQuickFuelNote(raw) || raw;
+    const pricing = getQuickFuelPricing(note);
     return {
       ok: true,
       mode: "fuel",
@@ -3827,9 +4093,11 @@ function parseLocalRecordDraft(text) {
         fuelType,
         liters: parseQuickLiters(raw),
         unitPrice: 0,
-        discount: DEFAULT_FUEL_DISCOUNT,
+        discount: pricing.discount,
+        rebatePercent: pricing.rebatePercent,
+        fCoinPerLiter: pricing.fCoinPerLiter,
         fullTank: !/未加滿|沒加滿|不加滿/.test(raw),
-        note: getQuickFuelNote(raw) || raw,
+        note,
         confidence: 0.88,
         missingFields: mileage || getCurrentMileage() ? [] : ["里程"]
       }
@@ -3892,6 +4160,8 @@ async function applyFuelDraft(result, sourceText) {
   const cost = getDraftInteger(draft.cost);
   const fuelType = ["92", "95", "98"].includes(String(draft.fuelType)) ? String(draft.fuelType) : DEFAULT_FUEL_TYPE;
   const discount = getDraftNumber(draft.discount) ?? DEFAULT_FUEL_DISCOUNT;
+  const rebatePercent = getDraftNumber(draft.rebatePercent) ?? 0;
+  const fCoinPerLiter = getDraftNumber(draft.fCoinPerLiter) ?? 0;
   const mileage = getDraftInteger(draft.mileage) ?? getCurrentMileage();
 
   closeTextEntryModal();
@@ -3901,8 +4171,13 @@ async function applyFuelDraft(result, sourceText) {
   document.getElementById("fuelLogTypeInput").value = fuelType;
   document.getElementById("fuelLogFullTankInput").value = draft.fullTank === false ? "no" : "yes";
   document.getElementById("fuelLogDiscountInput").value = discount.toFixed(1);
+  document.getElementById("fuelLogRebateInput").value = formatRate(rebatePercent);
+  document.getElementById("fuelLogFCoinInput").value = formatRate(fCoinPerLiter);
   document.getElementById("fuelLogCostInput").value = cost || "";
   document.getElementById("fuelLogNoteInput").value = String(draft.note || "").trim() || sourceText;
+  syncFuelOfferSelect();
+  refreshFuelCouponDefault();
+  updateFuelOfferDetails({ settle: true });
 
   const unitPrice = getDraftNumber(draft.unitPrice);
   if (unitPrice) {
@@ -3913,7 +4188,8 @@ async function applyFuelDraft(result, sourceText) {
 
   const finalUnitPrice = parseDecimalInput(document.getElementById("fuelLogUnitPriceInput").value);
   const netPrice = Number.isFinite(finalUnitPrice) ? Math.max(finalUnitPrice - discount, 0) : 0;
-  const liters = getDraftNumber(draft.liters) ?? (cost && netPrice > 0 ? cost / netPrice : null);
+  const coupon = getFuelLogCoupon() || 0;
+  const liters = getDraftNumber(draft.liters) ?? (cost && netPrice > 0 ? (cost + coupon) / netPrice : null);
   if (liters) {
     document.getElementById("fuelLogLitersInput").value = liters.toFixed(2);
   }
@@ -4043,6 +4319,9 @@ function handleFuelLogSubmit(e) {
   const fuelType = document.getElementById("fuelLogTypeInput").value;
   const fullTank = document.getElementById("fuelLogFullTankInput").value === "yes";
   const note = document.getElementById("fuelLogNoteInput").value.trim();
+  const rebatePercent = getFuelLogRebatePercent();
+  const fCoinPerLiter = getFuelLogFCoinRate();
+  const coupon = getFuelLogCoupon();
   const maxMileage = fuelEditIndex >= 0 ? getMaxMileage(fuelEditIndex) : getCurrentMileage();
   const saveBtn = e.submitter || document.querySelector("#fuelLogForm button[type='submit']");
 
@@ -4067,6 +4346,18 @@ function handleFuelLogSubmit(e) {
   }
   if (cost < 0) {
     showFuelLogMessage("error", "油費不能是負數。");
+    return;
+  }
+  if (rebatePercent === null) {
+    showFuelLogMessage("error", "刷卡回饋請輸入 0 到 100 之間的百分比，例如 2。");
+    return;
+  }
+  if (fCoinPerLiter === null) {
+    showFuelLogMessage("error", "F幣回饋請輸入每公升幾點，例如 1.2。");
+    return;
+  }
+  if (coupon === null) {
+    showFuelLogMessage("error", "加油券折抵請輸入金額（元），沒用就填 0。");
     return;
   }
   const economyWarning = getFuelEconomyWarning(
@@ -4101,7 +4392,10 @@ function handleFuelLogSubmit(e) {
         : "",
       calculatedFuelCost
         ? `實付 ${calculatedFuelCost.netPrice.toFixed(1)} 元/L`
-        : ""
+        : "",
+      coupon > 0 ? `加油券 ${coupon} 元` : "",
+      rebatePercent > 0 ? `回饋 ${formatRate(rebatePercent)}%` : "",
+      fCoinPerLiter > 0 ? `F幣 ${formatRate(fCoinPerLiter)} 點/L` : ""
     ].filter(Boolean).join("｜"),
     cost,
     note
@@ -4351,9 +4645,13 @@ function renderFuelLogSection() {
   }
 
   empty.style.display = "none";
+  const totalRebate = logs.reduce((sum, log) => sum + log.rebate, 0);
+  const totalFuelCoins = logs.reduce((sum, log) => sum + log.fCoins, 0);
   summary.textContent = [
     `共 ${logs.length} 筆`,
     `累計 ${formatCost(fuelStats.totalCost)}`,
+    totalRebate ? `刷卡回饋約 ${formatCost(totalRebate)}` : "",
+    totalFuelCoins ? `F幣約 ${Math.round(totalFuelCoins).toLocaleString("zh-TW")} 點` : "",
     fuelStats.averageKmPerLiter
       ? `平均 ${fuelStats.averageKmPerLiter.toFixed(1)} km/L${excludedNote}`
       : "油耗待第二次加滿後計算",
@@ -4367,6 +4665,11 @@ function renderFuelLogSection() {
       ? `${segment.kmPerLiter.toFixed(1)} km/L`
       : (log.fullTank ? "基準" : "—");
     const costPerKm = segment?.costPerKm != null ? `NT$ ${segment.costPerKm.toFixed(2)}` : "—";
+    // 回饋是入帳後才拿到的小樹點與 F幣，不含在油費裡。
+    const rewards = [
+      log.rebate ? `NT$ ${log.rebate.toLocaleString("zh-TW")}` : "",
+      log.fCoins ? `F幣 ${formatFuelCoins(log.fCoins)}` : ""
+    ].filter(Boolean).join(" + ");
     return `
       <tr>
         <td data-label="日期">${escapeHtml(log.date)}</td>
@@ -4374,9 +4677,10 @@ function renderFuelLogSection() {
         <td data-label="里程">${formatMileage(log.mileage)}</td>
         <td data-label="公升">${log.liters.toFixed(2)} L</td>
         <td data-label="牌告">${formatNumberOrDash(log.unitPrice, 1)}</td>
-        <td data-label="折抵">${formatNumberOrDash(log.discount, 1)}</td>
+        <td data-label="折抵">${formatNumberOrDash(log.discount, 1)}${log.coupon ? ` + 券 ${log.coupon.toLocaleString("zh-TW")}` : ""}</td>
         <td data-label="實付/L">${formatNumberOrDash(log.netPrice, 1)}</td>
         <td data-label="油費">${formatCost(log.cost)}</td>
+        <td data-label="回饋">${rewards || "—"}</td>
         <td data-label="油耗"><span>${kmPerLiter}</span>${needsReview ? '<span class="data-quality-flag">待確認</span>' : ""}</td>
         <td data-label="每公里">${costPerKm}</td>
         <td data-label="備註">${escapeHtml(log.note || "")}</td>
@@ -4556,7 +4860,27 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("fuelLogCancelBtn").addEventListener("click", closeFuelLogModal);
   document.getElementById("fuelLogForm").addEventListener("submit", handleFuelLogSubmit);
   document.getElementById("btnFetchFuelPrice").addEventListener("click", () => loadFuelPriceForSelectedType({ force: true, preferCache: false }));
-  ["fuelLogLitersInput", "fuelLogUnitPriceInput", "fuelLogDiscountInput"].forEach(id => {
+  document.getElementById("fuelLogOfferInput").addEventListener("change", event => {
+    clearFuelLogMessage();
+    applyFuelOffer(event.target.value);
+  });
+  ["fuelLogNoteInput", "fuelLogRebateInput", "fuelLogFCoinInput"].forEach(id => {
+    document.getElementById(id).addEventListener("input", syncFuelOfferSelect);
+  });
+  // 自己改過加油券就不再依加油日、公升自動帶入。
+  document.getElementById("fuelLogCouponInput").addEventListener("input", event => {
+    event.target.dataset.edited = "true";
+    updateFuelOfferDetails();
+  });
+  document.getElementById("fuelLogDateInput").addEventListener("input", () => {
+    if (refreshFuelCouponDefault()) updateFuelLogCostFromDiscount();
+    updateFuelOfferDetails();
+  });
+  document.getElementById("fuelLogLitersInput").addEventListener("input", () => {
+    refreshFuelCouponDefault();
+    updateFuelOfferDetails();
+  });
+  ["fuelLogLitersInput", "fuelLogUnitPriceInput", "fuelLogDiscountInput", "fuelLogRebateInput", "fuelLogFCoinInput", "fuelLogCouponInput"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
       clearFuelLogMessage();
       updateFuelLogCostFromDiscount();

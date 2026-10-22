@@ -751,3 +751,303 @@ test("a normal fill shows its km/L and counts liters of fills that were not full
   api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
   assert.equal(api.getRecords().length, 9);
 });
+
+function stationFill(date, mileage, cost, pricing, note) {
+  return { date, mileage, category: "加油", cost, detail: `加油｜98｜50.00 L｜加滿｜${pricing}`, note };
+}
+
+const NPC_SELF_FILL = stationFill("2026-09-25", 5000, 1645, "牌告 34.7 元/L｜優惠 1.8 元/L｜實付 32.9 元/L", "全國加油站自助");
+const FORMOSA_CUBE_FILL = stationFill("2026-10-05", 5500, 1660, "牌告 34.7 元/L｜優惠 1.5 元/L｜實付 33.2 元/L｜回饋 2%", "台塑自助");
+
+test("picking the 台塑 CUBE offer fills the price cut, the 2% rebate and the station", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL]);
+  api.openFuelLogModal({ skipPriceLoad: true });
+  assert.equal(element("fuelLogOfferInput").value, "npc-self");
+  element("fuelLogMileageInput").value = "5500";
+  element("fuelLogLitersInput").value = "50";
+  element("fuelLogUnitPriceInput").value = "34.7";
+
+  element("fuelLogOfferInput").value = "formosa-cube";
+  api.applyFuelOffer("formosa-cube");
+
+  assert.equal(element("fuelLogDiscountInput").value, "1.2");
+  assert.equal(element("fuelLogRebateInput").value, "2");
+  assert.equal(element("fuelLogNoteInput").value, "台塑自助");
+  assert.equal(element("fuelLogCostInput").value, 1675);
+  assert.match(element("fuelLogOfferHint").textContent, /加油前先在 CUBE App 切到「台塑家」才有 2% 小樹點/);
+  // 50 L × (34.7 − 1.2) = 1,675；2% 小樹點 34 點，回饋後 1,641 ÷ 50 L。
+  assert.match(element("fuelLogNetPriceHint").textContent,
+    /實付單價 33\.5 元\/L，預估油費 NT\$ 1,675；2% 回饋約 NT\$ 34，實際約 NT\$ 1,641（32\.8 元\/L）；若發票金額不同可直接修改/);
+
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+
+  const saved = api.getRecords().find(record => record.note === "台塑自助");
+  assert.equal(saved.cost, 1675);
+  assert.equal(saved.detail, "加油｜98｜50.00 L｜加滿｜牌告 34.7 元/L｜優惠 1.2 元/L｜實付 33.5 元/L｜回饋 2%");
+});
+
+test("the fill after a 台塑 CUBE fill keeps the offer, its rebate and that station's own price cut", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_CUBE_FILL]);
+
+  api.openFuelLogModal({ skipPriceLoad: true });
+
+  assert.equal(element("fuelLogOfferInput").value, "formosa-cube");
+  assert.equal(element("fuelLogDiscountInput").value, "1.5");
+  assert.equal(element("fuelLogRebateInput").value, "2");
+  assert.equal(element("fuelLogNoteInput").value, "台塑自助");
+
+  // 換回全國加油站：折抵與回饋跟著改，備註其餘文字保留。
+  element("fuelLogNoteInput").value = "台塑自助，胎壓 36 psi";
+  api.applyFuelOffer("npc-self");
+  assert.equal(element("fuelLogDiscountInput").value, "1.8");
+  assert.equal(element("fuelLogRebateInput").value, "0");
+  assert.equal(element("fuelLogNoteInput").value, "全國加油站自助，胎壓 36 psi");
+});
+
+test("offers replace only the station part of the note", () => {
+  const { api } = loadApp({ today: TODAY });
+  const formosa = api.FUEL_OFFERS.find(offer => offer.id === "formosa-cube");
+
+  assert.equal(api.replaceFuelStation("全國加油站自助", formosa), "台塑自助");
+  assert.equal(api.replaceFuelStation("中油，跳停一次", formosa), "台塑自助，跳停一次");
+  assert.equal(api.replaceFuelStation("台亞自助", formosa), "台亞自助");
+  assert.equal(api.replaceFuelStation("胎壓 36 psi", formosa), "台塑自助，胎壓 36 psi");
+  assert.equal(api.replaceFuelStation("", formosa), "台塑自助");
+  assert.equal(api.findFuelOffer("統一速邁樂自助", 2)?.id, "formosa-cube");
+  assert.equal(api.findFuelOffer("台塑自助", 0), null);
+});
+
+test("every fuel offer is listed in the fuel form", () => {
+  const { api } = loadApp();
+  const html = readProjectFile("index.html");
+  for (const offer of api.FUEL_OFFERS) {
+    assert.ok(html.includes(`<option value="${offer.id}">${offer.label}</option>`), offer.id);
+  }
+  assert.ok(html.includes('<option value="custom">'));
+  for (const id of ["fuelLogRebateInput", "fuelLogFCoinInput", "fuelLogCouponInput"]) {
+    assert.match(html, new RegExp(`id="${id}"`), id);
+  }
+  assert.match(html, /<th>油費<\/th><th>回饋<\/th>/);
+});
+
+test("the fuel analysis shows the card rebate while costs stay at the paid amount", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_CUBE_FILL]);
+
+  const [npc, formosa] = api.getFuelLogs();
+  assert.equal(npc.rebatePercent, 0);
+  assert.equal(npc.rebate, 0);
+  assert.equal(formosa.rebatePercent, 2);
+  assert.equal(formosa.rebate, 33);
+  assert.equal(api.getFuelStats().totalCost, 3305);
+
+  api.renderFuelLogSection();
+  assert.match(element("fuelLogSummary").textContent, /累計 NT\$ 3,305 · 刷卡回饋約 NT\$ 33 · 平均/);
+  const html = element("fuelLogTableBody").innerHTML;
+  assert.match(html, /<td data-label="折抵">1\.5<\/td>/);
+  assert.match(html, /<td data-label="回饋">NT\$ 33<\/td>/);
+  assert.match(html, /<td data-label="回饋">—<\/td>/);
+});
+
+test("the 台塑 CUBE offer asks to check the terms once its campaign period is over", () => {
+  const { api, element } = loadApp({ today: "2027-01-05T09:00:00" });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_CUBE_FILL]);
+
+  api.openFuelLogModal({ skipPriceLoad: true });
+
+  assert.equal(element("fuelLogOfferInput").value, "formosa-cube");
+  assert.match(element("fuelLogOfferHint").textContent, /活動期間是 2026\/06\/01–2026\/12\/31，加油日不在期間內/);
+});
+
+test("an unreadable card rebate blocks saving", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL]);
+  api.openFuelLogModal({ skipPriceLoad: true });
+  element("fuelLogMileageInput").value = "5500";
+  element("fuelLogLitersInput").value = "50";
+  element("fuelLogUnitPriceInput").value = "34.7";
+  element("fuelLogRebateInput").value = "兩趴";
+
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(api.getRecords().length, 1);
+  assert.match(element("fuelLogMessage").textContent, /刷卡回饋請輸入 0 到 100 之間的百分比/);
+});
+
+test("a text entry that names 台塑 uses the CUBE price cut and rebate", () => {
+  const { api } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL]);
+
+  const draft = api.parseLocalRecordDraft("台塑 98 加 45L 1500").draft;
+  assert.equal(draft.discount, 1.2);
+  assert.equal(draft.rebatePercent, 2);
+  assert.equal(draft.note, "台塑");
+
+  // 上次也在台塑體系：沿用上次那站的降價；沒寫加油站就沿用上次加油。
+  api.setRecords([NPC_SELF_FILL, FORMOSA_CUBE_FILL]);
+  assert.equal(api.parseLocalRecordDraft("台亞 加油 45L 1500").draft.discount, 1.5);
+  const unnamed = api.parseLocalRecordDraft("加油 45L 1500").draft;
+  assert.equal(unnamed.discount, 1.5);
+  assert.equal(unnamed.rebatePercent, 2);
+});
+
+const WEDNESDAY = "2026-10-21T09:00:00";
+const FORMOSA_PAY_FILL = stationFill("2026-10-14", 6000, 1660,
+  "牌告 34.7 元/L｜優惠 1.2 元/L｜實付 33.5 元/L｜加油券 15 元｜回饋 2%｜F幣 1.2 點/L", "台塑自助");
+
+test("the 台塑石油 Pay offer adds F幣 and takes the Wednesday coupon off a 25 L+ fill", () => {
+  const { api, element } = loadApp({ today: WEDNESDAY });
+  api.setRecords([NPC_SELF_FILL]);
+  api.openFuelLogModal({ skipPriceLoad: true });
+  assert.equal(element("fuelLogExtraOffer").hidden, true);
+  element("fuelLogMileageInput").value = "5500";
+  element("fuelLogLitersInput").value = "50";
+  element("fuelLogUnitPriceInput").value = "34.7";
+
+  element("fuelLogOfferInput").value = "formosa-pay";
+  api.applyFuelOffer("formosa-pay");
+
+  assert.equal(element("fuelLogExtraOffer").hidden, false);
+  assert.equal(element("fuelLogDiscountInput").value, "1.2");
+  assert.equal(element("fuelLogRebateInput").value, "2");
+  assert.equal(element("fuelLogFCoinInput").value, "1.2");
+  assert.equal(element("fuelLogCouponInput").value, "15");
+  assert.equal(element("fuelLogNoteInput").value, "台塑自助");
+  assert.match(element("fuelLogOfferHint").textContent, /加油機上要取消「累 F幣」才會同時降價/);
+  assert.match(element("fuelLogExtraHint").textContent, /加油日是週三：週三加滿 25 公升用 App 的週三加油券再折 15 元，沒用到請改成 0/);
+  assert.match(element("fuelLogExtraHint").textContent, /用 F幣折抵的那次，油費填折抵前的金額/);
+  // 50 L × 33.5 = 1,675，週三券 −15 → 1,660；2% 回饋 33、F幣 60 點 → 實際 1,567 ÷ 50 L。
+  assert.equal(element("fuelLogCostInput").value, 1660);
+  assert.match(element("fuelLogNetPriceHint").textContent,
+    /實付單價 33\.5 元\/L，加油券折 15 元，預估油費 NT\$ 1,660；2% 回饋約 NT\$ 33、F幣約 60 點，實際約 NT\$ 1,567（31\.3 元\/L）/);
+
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+
+  const saved = api.getRecords().find(record => record.note === "台塑自助");
+  assert.equal(saved.cost, 1660);
+  assert.equal(saved.detail, "加油｜98｜50.00 L｜加滿｜牌告 34.7 元/L｜優惠 1.2 元/L｜實付 33.5 元/L｜加油券 15 元｜回饋 2%｜F幣 1.2 點/L");
+
+  // 換回刷卡：F幣與週三券都歸零，欄位收起來。
+  api.applyFuelOffer("formosa-cube");
+  assert.equal(element("fuelLogFCoinInput").value, "0");
+  assert.equal(element("fuelLogCouponInput").value, "0");
+  assert.equal(element("fuelLogExtraOffer").hidden, true);
+  element("fuelLogOfferInput").value = "custom";
+  api.applyFuelOffer("custom");
+  assert.equal(element("fuelLogExtraOffer").hidden, false);
+});
+
+test("the Wednesday coupon follows the date and litres until it is changed by hand", () => {
+  const { api, element } = loadApp({ today: WEDNESDAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_PAY_FILL]);
+
+  api.openFuelLogModal({ skipPriceLoad: true });
+  assert.equal(element("fuelLogOfferInput").value, "formosa-pay");
+  assert.equal(element("fuelLogFCoinInput").value, "1.2");
+  assert.equal(element("fuelLogCouponInput").value, "15");
+
+  element("fuelLogLitersInput").value = "20";
+  assert.equal(api.refreshFuelCouponDefault(), true);
+  assert.equal(element("fuelLogCouponInput").value, "0");
+  api.updateFuelOfferDetails();
+  assert.match(element("fuelLogExtraHint").textContent, /未滿 25 公升，不能用週三加油券/);
+
+  element("fuelLogLitersInput").value = "40";
+  element("fuelLogDateInput").value = "2026-10-22";
+  api.refreshFuelCouponDefault();
+  assert.equal(element("fuelLogCouponInput").value, "0");
+  api.updateFuelOfferDetails();
+  assert.match(element("fuelLogExtraHint").textContent, /^週三加滿 25 公升用 App 的週三加油券再折 15 元。/);
+
+  // 這週的券已經用掉：自己改成 0 之後，改回週三也不會再帶入。
+  element("fuelLogDateInput").value = "2026-10-21";
+  element("fuelLogCouponInput").dataset.edited = "true";
+  assert.equal(api.refreshFuelCouponDefault(), false);
+  assert.equal(element("fuelLogCouponInput").value, "0");
+
+  // 編輯舊紀錄保留原本的加油券。
+  api.openFuelLogModal({ editIndex: 1 });
+  assert.equal(element("fuelLogCouponInput").value, "15");
+  assert.equal(element("fuelLogOfferInput").value, "formosa-pay");
+});
+
+test("litres inferred from the paid amount add the coupon back", () => {
+  const { api, element } = loadApp({ today: WEDNESDAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_PAY_FILL]);
+  api.openFuelLogModal({ skipPriceLoad: true });
+  element("fuelLogUnitPriceInput").value = "34.7";
+  element("fuelLogCostInput").value = "1660";
+
+  assert.equal(api.getFuelLogInferredLiters().liters.toFixed(2), "50.00");
+});
+
+test("the fuel analysis shows coupons as a discount and F幣 as a reward", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_PAY_FILL]);
+
+  const pay = api.getFuelLogs()[1];
+  assert.equal(pay.coupon, 15);
+  assert.equal(pay.fCoinPerLiter, 1.2);
+  assert.equal(pay.fCoins, 60);
+  assert.equal(pay.rebate, 33);
+  assert.equal(api.getFuelCoinAmount(49.57, 1.2), 59.48);
+
+  api.renderFuelLogSection();
+  assert.match(element("fuelLogSummary").textContent, /刷卡回饋約 NT\$ 33 · F幣約 60 點/);
+  const html = element("fuelLogTableBody").innerHTML;
+  assert.match(html, /<td data-label="折抵">1\.2 \+ 券 15<\/td>/);
+  assert.match(html, /<td data-label="回饋">NT\$ 33 \+ F幣 60<\/td>/);
+});
+
+test("unreadable F幣 or coupon values block saving", () => {
+  const { api, element } = loadApp({ today: WEDNESDAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_PAY_FILL]);
+  api.openFuelLogModal({ skipPriceLoad: true });
+  element("fuelLogMileageInput").value = "6500";
+  element("fuelLogLitersInput").value = "50";
+  element("fuelLogUnitPriceInput").value = "34.7";
+
+  element("fuelLogFCoinInput").value = "很多";
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.match(element("fuelLogMessage").textContent, /F幣回饋請輸入每公升幾點/);
+
+  element("fuelLogFCoinInput").value = "1.2";
+  element("fuelLogCouponInput").value = "-15";
+  api.handleFuelLogSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.match(element("fuelLogMessage").textContent, /加油券折抵請輸入金額/);
+  assert.equal(api.getRecords().length, 2);
+});
+
+test("text entries pick the 台塑石油 Pay offer only where it can be used", () => {
+  const { api } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_PAY_FILL]);
+
+  assert.equal(api.parseLocalRecordDraft("台塑 加油 45L 1500").draft.fCoinPerLiter, 1.2);
+  // 統一速邁樂不能用台塑石油 Pay：改用刷卡的優惠。
+  const smile = api.parseLocalRecordDraft("速邁樂 加油 45L 1500").draft;
+  assert.equal(smile.fCoinPerLiter, 0);
+  assert.equal(smile.rebatePercent, 2);
+  // 沒有優惠的加油站不帶回饋與 F幣。
+  const cpc = api.parseLocalRecordDraft("中油 加油 45L 1500").draft;
+  assert.equal(cpc.rebatePercent, 0);
+  assert.equal(cpc.fCoinPerLiter, 0);
+});
+
+test("clearing the F幣 field to retype it keeps the F幣 and coupon fields open", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([NPC_SELF_FILL, FORMOSA_PAY_FILL]);
+  api.openFuelLogModal({ skipPriceLoad: true });
+  assert.equal(element("fuelLogOfferInput").value, "formosa-pay");
+  assert.equal(element("fuelLogCouponInput").value, "0");
+  assert.equal(element("fuelLogExtraOffer").hidden, false);
+
+  element("fuelLogFCoinInput").value = "";
+  api.syncFuelOfferSelect();
+  assert.equal(element("fuelLogExtraOffer").hidden, false);
+
+  // 從選單換成不用 F幣 的優惠才收起來。
+  api.applyFuelOffer("npc-self");
+  assert.equal(element("fuelLogExtraOffer").hidden, true);
+});

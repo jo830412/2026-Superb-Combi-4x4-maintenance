@@ -1323,6 +1323,12 @@ body {
   gap: 14px;
 }
 .form-group-full { grid-column: 1 / -1; }
+/* 兩個短欄位在手機上也並排（例如每公升折抵與刷卡回饋）。 */
+.form-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
 .form-label {
   display: block;
   font-size: 0.82rem;

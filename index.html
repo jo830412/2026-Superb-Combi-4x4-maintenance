@@ -16,7 +16,7 @@
     // 在樣式套用前決定主題，避免開啟時先閃一下深色。
     try { if (localStorage.getItem("newSuperbTheme_v1") === "light") document.documentElement.dataset.theme = "light"; } catch (error) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.10.20.3" />
+  <link rel="stylesheet" href="styles.css?v=2026.10.22.1" />
 </head>
 <body>
   <!-- 頂部導覽列 -->
@@ -28,7 +28,7 @@
           <h1 class="logo-title"><span class="logo-title-full">2026 Superb Combi 4x4 保養維修紀錄</span><span class="logo-title-short">Superb 保養紀錄</span></h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.10.20.3</span>
+            <span class="version-badge" id="appVersion">v2026.10.22.1</span>
           </div>
         </div>
       </div>
@@ -186,7 +186,7 @@
         <button class="btn btn-ghost" id="btnLegacyStashDownload" type="button" hidden>下載升級前的本機資料</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
-      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.20.3</span></p>
+      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.22.1</span></p>
     </details>
   </section>
 
@@ -221,7 +221,7 @@
         </div>
         <div class="fuel-log-table-wrap">
           <table class="fuel-log-table">
-            <thead><tr><th>日期</th><th>油品</th><th>里程</th><th>公升</th><th>牌告</th><th>折抵</th><th>實付/L</th><th>油費</th><th>油耗</th><th>每公里</th><th>備註</th></tr></thead>
+            <thead><tr><th>日期</th><th>油品</th><th>里程</th><th>公升</th><th>牌告</th><th>折抵</th><th>實付/L</th><th>油費</th><th>回饋</th><th>油耗</th><th>每公里</th><th>備註</th></tr></thead>
             <tbody id="fuelLogTableBody"></tbody>
           </table>
         </div>
@@ -394,11 +394,40 @@
               </div>
               <div class="form-help" id="fuelLogPriceStatus">預設 98，會嘗試抓取全國加油站今日牌價。</div>
             </div>
-            <div class="form-group">
-              <label class="form-label" for="fuelLogDiscountInput">優惠折抵 (NT$/L)</label>
-              <input type="text" id="fuelLogDiscountInput" class="form-input" inputmode="decimal" autocomplete="off" value="1.8"/>
+            <div class="form-group form-group-full">
+              <label class="form-label" for="fuelLogOfferInput">加油站・付款優惠</label>
+              <select id="fuelLogOfferInput" class="form-input">
+                <option value="formosa-cube">台塑自助・刷 CUBE 卡（台塑家）</option>
+                <option value="formosa-pay">台塑自助・台塑石油 Pay（綁 CUBE）</option>
+                <option value="npc-self">全國加油站自助</option>
+                <option value="custom">其他（手動輸入）</option>
+              </select>
+              <div class="form-help" id="fuelLogOfferHint"></div>
             </div>
-            <div class="form-group">
+            <div class="form-group-full form-pair">
+              <div class="form-group">
+                <label class="form-label" for="fuelLogDiscountInput">優惠折抵 (NT$/L)</label>
+                <input type="text" id="fuelLogDiscountInput" class="form-input" inputmode="decimal" autocomplete="off" value="1.8"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="fuelLogRebateInput">刷卡回饋 (%)</label>
+                <input type="text" id="fuelLogRebateInput" class="form-input" inputmode="decimal" autocomplete="off" value="0"/>
+              </div>
+            </div>
+            <div class="form-group form-group-full" id="fuelLogExtraOffer" hidden>
+              <div class="form-pair">
+                <div class="form-group">
+                  <label class="form-label" for="fuelLogFCoinInput">F幣回饋 (點/L)</label>
+                  <input type="text" id="fuelLogFCoinInput" class="form-input" inputmode="decimal" autocomplete="off" value="0"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="fuelLogCouponInput">加油券折抵 (NT$)</label>
+                  <input type="text" id="fuelLogCouponInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="0"/>
+                </div>
+              </div>
+              <div class="form-help" id="fuelLogExtraHint"></div>
+            </div>
+            <div class="form-group form-group-full">
               <label class="form-label" for="fuelLogCostInput">油費 (NT$)</label>
               <input type="text" id="fuelLogCostInput" class="form-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="0"/>
               <div class="form-help" id="fuelLogNetPriceHint">輸入加油量與油價會自動試算；若忘記公升數，可填油費與油價反推。</div>
@@ -562,6 +591,6 @@
     <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
   </div>
 
-  <script src="app.js?v=2026.10.20.3" defer></script>
+  <script src="app.js?v=2026.10.22.1" defer></script>
 </body>
 </html>
