@@ -230,14 +230,16 @@ test("a photo added on the phone lands in Drive and shows up on the laptop", asy
 
   phone.api.openEditModal(0);
   await phone.api.handleFormPhotoInput({ target: { files: [{ name: "IMG_0001.JPG" }], value: "" } });
-  phone.api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.equal(backend.drive.photos().length, 0);
+  await phone.api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
   await phone.api.whenSyncIdle();
 
   const [photo] = backend.drive.photos();
-  assert.equal(photo.name, "2026-09-01 保養 紀錄 1.jpg");
+  assert.equal(photo.name, "2026-09-01 保養 紀錄 1 1.jpg");
   assert.equal(backend.api.readRecords_(backend.mainSheet)[0].photos, photo.id);
   assert.match(phone.element("syncStatus").textContent, /已同步/);
 
   await laptop.api.requestSync({ reconcile: true });
   assert.equal(laptop.api.getRecords()[0].photos, photo.id);
+  assert.equal(laptop.api.photoFolderId, backend.drive.folders()[0].id);
 });

@@ -37,10 +37,12 @@ function doGet(e) {
   const action = e && e.parameter && e.parameter.action;
 
   if (action === "syncState") {
+    // 資料夾沒有分享，知道 ID 也打不開；網站用它顯示「開啟照片資料夾」。
     return createJsonResponse({
       records: records,
       fingerprint: computeRecordsFingerprint_(records),
-      updatedAt: getLastSyncAt_()
+      updatedAt: getLastSyncAt_(),
+      photoFolderId: PropertiesService.getScriptProperties().getProperty(PHOTO_FOLDER_PROPERTY) || ""
     });
   }
 

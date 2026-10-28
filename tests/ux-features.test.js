@@ -1095,7 +1095,7 @@ function flushAsync() {
   return new Promise(resolve => setImmediate(resolve));
 }
 
-test("photos picked in the record form upload first and are saved with the record", async () => {
+test("picking photos uploads nothing until the record is saved", async () => {
   const backend = photoBackend();
   const { api, element } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
   api.assign("compressPhoto", async file => `/9j/${file.name}`);
@@ -1108,20 +1108,94 @@ test("photos picked in the record form upload first and are saved with the recor
   element("formDetail").value = "ZL1 卡鉗\n含盤 380";
   await pickPhotos(api, 2);
 
-  assert.deepEqual(backend.uploads.map(upload => upload.data), ["/9j/IMG_0.HEIC", "/9j/IMG_1.HEIC"]);
-  assert.equal(backend.uploads[0].name, "2026-10-02 改裝升級 ZL1 卡鉗.jpg");
-  assert.equal(element("formPhotoList").hidden, false);
-  assert.match(element("formPhotoList").innerHTML, /href="https:\/\/drive\.google\.com\/file\/d\/fakePhoto00000001\/view" target="_blank" rel="noopener"/);
-  assert.match(element("formPhotoList").innerHTML, /照片 2/);
+  assert.equal(backend.uploads.length, 0);
+  assert.match(element("formPhotoList").innerHTML, /新照片 2/);
+  assert.doesNotMatch(element("formPhotoList").innerHTML, /drive\.google\.com/);
 
-  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  await api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
   await api.whenSyncIdle();
 
+  assert.deepEqual(backend.uploads.map(upload => upload.data), ["/9j/IMG_0.HEIC", "/9j/IMG_1.HEIC"]);
+  assert.deepEqual(backend.uploads.map(upload => upload.name), ["2026-10-02 改裝升級 ZL1 卡鉗 1.jpg", "2026-10-02 改裝升級 ZL1 卡鉗 2.jpg"]);
   assert.equal(api.getRecords()[0].photos, `${PHOTO_A},${PHOTO_B}`);
   assert.equal(backend.syncs.at(-1).records[0].photos, `${PHOTO_A},${PHOTO_B}`);
+  assert.equal(element("modal").style.display, "none");
 });
 
-test("saving waits for photos still uploading, and a form closed mid-upload ignores them", async () => {
+test("cancelling a form or removing a new photo uploads nothing", async () => {
+  const backend = photoBackend();
+  const { api, element } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.assign("compressPhoto", async file => `/9j/${file.name}`);
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta());
+
+  api.openAddModal();
+  await pickPhotos(api, 1);
+  api.closeModal();
+  assert.equal(backend.uploads.length, 0);
+  assert.equal(element("formPhotoList").hidden, true);
+
+  api.openAddModal();
+  element("formCategory").value = "清潔美容";
+  element("formDetail").value = "鍍膜";
+  await pickPhotos(api, 2);
+  api.removeNewFormPhoto(0);
+  await api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.deepEqual(backend.uploads.map(upload => upload.data), ["/9j/IMG_1.HEIC"]);
+  assert.equal(api.getRecords()[0].photos, PHOTO_A);
+});
+
+test("a failed upload keeps the form open and the next save sends only what is left", async () => {
+  const backend = photoBackend({ fail: count => count === 2 });
+  const { api, element } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.assign("compressPhoto", async file => `/9j/${file.name}`);
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta());
+
+  api.openAddModal();
+  element("formCategory").value = "改裝升級";
+  element("formDetail").value = "G025 輪框";
+  await pickPhotos(api, 2);
+  await api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(api.getRecords().length, 0);
+  assert.equal(element("modal").style.display, "flex");
+  assert.match(element("formMessage").textContent, /照片沒有傳上去（只接受 JPEG 照片），紀錄還沒儲存/);
+  assert.match(element("formPhotoList").innerHTML, /fakePhoto00000001/);
+  assert.match(element("formPhotoList").innerHTML, /新照片 1/);
+
+  await api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.deepEqual(backend.uploads.map(upload => upload.data), ["/9j/IMG_0.HEIC", "/9j/IMG_1.HEIC", "/9j/IMG_1.HEIC"]);
+  assert.equal(api.getRecords()[0].photos, "fakePhoto00000001,fakePhoto00000003");
+});
+
+test("saving offline with new photos sends nothing until they are removed or the phone is online", async () => {
+  const backend = photoBackend();
+  const { api, element, context } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.assign("compressPhoto", async () => "/9j/");
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta());
+  context.navigator = { onLine: false };
+
+  api.openAddModal();
+  element("formCategory").value = "清潔美容";
+  element("formDetail").value = "洗車";
+  await pickPhotos(api, 1);
+  await api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(backend.uploads.length, 0);
+  assert.equal(api.getRecords().length, 0);
+  assert.match(element("formMessage").textContent, /目前沒有網路，新照片傳不上去/);
+
+  // 移除新照片後，沒網路也能先存紀錄。
+  api.removeNewFormPhoto(0);
+  await api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.equal(api.getRecords().length, 1);
+  assert.equal(api.getRecords()[0].photos, "");
+});
+
+test("closing the form while photos upload saves nothing, and a second tap does not upload twice", async () => {
   const backend = photoBackend({ hold: true });
   const { api, element } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
   api.assign("compressPhoto", async () => "/9j/");
@@ -1129,39 +1203,40 @@ test("saving waits for photos still uploading, and a form closed mid-upload igno
   api.setSyncMeta(syncedMeta());
 
   api.openAddModal();
-  element("formCategory").value = "保養";
-  element("formDetail").value = "7,500 km 定期保養";
-  const picking = pickPhotos(api, 1);
+  element("formCategory").value = "清潔美容";
+  element("formDetail").value = "鍍膜";
+  await pickPhotos(api, 2);
+  const saving = api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
   await flushAsync();
-  assert.match(element("formPhotoList").innerHTML, /上傳中，還有 1 張/);
-
+  assert.match(element("formMessage").textContent, /正在上傳照片 1\/2/);
   api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
-  assert.equal(api.getRecords().length, 0);
-  assert.match(element("formMessage").textContent, /照片還在上傳/);
+  assert.equal(backend.uploads.length, 1);
 
   api.closeModal();
   backend.held[0]();
-  await picking;
-  assert.equal(element("formPhotoList").innerHTML, "");
-  api.openAddModal();
-  assert.equal(element("formPhotoList").hidden, true);
+  await saving;
+  assert.equal(backend.uploads.length, 1);
+  assert.equal(api.getRecords().length, 0);
 });
 
-test("failed and offline photo uploads add nothing and say why", async () => {
-  const backend = photoBackend({ fail: count => count === 1 });
-  const { api, element, context } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
-  api.assign("compressPhoto", async () => "/9j/");
-
+test("the photo help links to the Drive folder once the cloud reports it", async () => {
+  const folder = "fakeFolder00000009";
+  const { api, element, localStore } = loadApp({
+    today: TODAY,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ records: [], fingerprint: "sheet-v1", updatedAt: "", photoFolderId: folder }) })
+  });
   api.openAddModal();
-  await pickPhotos(api, 2);
-  assert.match(element("formMessage").textContent, /1 張照片沒有傳上去（只接受 JPEG 照片）/);
-  assert.match(element("formPhotoList").innerHTML, /fakePhoto00000002/);
-  assert.doesNotMatch(element("formPhotoList").innerHTML, /照片 2/);
+  assert.match(element("formPhotoHelp").innerHTML, /按「儲存」才會上傳/);
+  assert.doesNotMatch(element("formPhotoHelp").innerHTML, /開啟照片資料夾/);
 
-  context.navigator = { onLine: false };
-  await pickPhotos(api, 1);
-  assert.equal(backend.uploads.length, 2);
-  assert.match(element("formMessage").textContent, /目前沒有網路/);
+  await api.requestSync({ reconcile: true });
+  assert.match(element("formPhotoHelp").innerHTML, /href="https:\/\/drive\.google\.com\/drive\/folders\/fakeFolder00000009" target="_blank" rel="noopener">開啟照片資料夾</);
+  assert.equal(localStore.get("newSuperbPhotoFolderId_v1"), folder);
+
+  // 下次開啟時就算離線，也用記住的資料夾。
+  const reopened = loadApp({ today: TODAY, localStore, fetchImpl: async () => { throw new TypeError("offline"); } });
+  reopened.api.openAddModal();
+  assert.match(reopened.element("formPhotoHelp").innerHTML, /folders\/fakeFolder00000009/);
 });
 
 test("editing keeps a record's photos and removing one keeps the rest", () => {
