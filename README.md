@@ -15,8 +15,8 @@ Static GitHub Pages site for tracking the 2026 Superb Combi 4x4 maintenance reco
 - `styles.css`: all styles.
 - `app.js`: app logic (records, sync, trackers, forms, charts).
 - `sw.js`, `manifest.webmanifest`, `icons/`: offline cache and home-screen install.
-- `apps-script/Code.js`: Google Sheet sync and the fuel-price proxy used by the static site.
-- `tools/dev-server.js`: local preview with a mock API (never touches the real sheet).
+- `apps-script/Code.js`: Google Sheet sync, photo uploads to Google Drive, and the fuel-price proxy used by the static site.
+- `tools/dev-server.js`: local preview with a mock API (never touches the real sheet or Drive).
 - `tests/`: Node tests; `tests/helpers/` holds the fake browser and fake Google Sheet.
 - `.nojekyll`: keeps GitHub Pages in plain static-file mode.
 
@@ -63,6 +63,7 @@ the connection and `/__offline?on=0` to restore it.
 - 每次成功覆寫 Google Sheet 前，Apps Script 會先把舊資料存入 `保養紀錄備份` 工作表，保留最近 20 個備份批次。備份建立失敗時不會清除原資料。
 - 第一次開啟新版時，若這台裝置的本機資料與雲端不同，會改用雲端資料，並把本機版本另存；可在「資料管理」→「下載升級前的本機資料」取回。
 - 發布同步格式變更時，先部署 Apps Script，確認 `?action=syncState` 可回傳資料與版本，再推送網站檔案到 GitHub Pages。
+- 試算表的 G 欄「照片」存每筆紀錄的雲端硬碟檔案 ID（以逗號分隔）。舊版網站送來的紀錄沒有照片欄，Apps Script 會拒絕並請使用者重新整理，避免把照片欄清空；沒有照片的紀錄沿用原本的雲端版本指紋，部署後不會被當成雲端已變更。
 
 ### Deploying Apps Script
 
@@ -74,6 +75,8 @@ clasp update-deployment AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvn
 ```
 
 - 一定要更新現有的部署（`update-deployment`），不要新建部署：新部署的網址不同，網站會連不到後端。
+- `appsscript.json` 的權限有變（例如加入照片時的 `drive.file`）時，`clasp push --force` 之後、`update-deployment` 之前，要先在 Apps Script 編輯器執行一次 `setupPhotoStorage` 並按「允許」。它會建立「2026 Superb Combi 保養照片」資料夾，並在執行記錄列出 G 欄原本的內容（應該是空的）。沒授權就部署，網頁版會因缺少權限而整個無法使用。
+- 照片用雲端硬碟進階服務（Drive API v3）與 `drive.file` 權限：Apps Script 只碰得到自己建立的檔案，碰不到雲端硬碟裡其他檔案。
 - `clasp push` 不加 `--force` 會先詢問是否覆寫 `appsscript.json`；在非互動的終端機裡會直接顯示 "Skipping push." 而沒有上傳，這時建立的版本仍是舊程式。
 - 要退回上一版：`clasp list-versions` 找版本號，再對同一個部署 ID 執行 `clasp update-deployment … -V <舊版本號>`。
 
@@ -103,6 +106,10 @@ clasp update-deployment AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvn
   - 「台塑自助・台塑石油 Pay（綁 CUBE）」：限台塑石油、台亞、福懋，同樣降 1.2 元起與 2% 小樹點，另回饋每公升 1.2 F幣（加油機上要取消「累 F幣」才會同時降價）；7/1 起週三加滿 25 公升用 App 的週三加油券再折 15 元，加油日是週三就自動帶入加油券（未滿 25 公升不帶，自己改過就不再自動改）。
 - 油費記加油站實收的金額（降價與加油券折抵後，也就是發票金額）。小樹點與 F幣 入帳後才拿到，存成明細裡的「回饋 2%」「F幣 1.2 點/L」，加油券存成「加油券 15 元」；表單試算回饋後的實際單價，加油分析顯示每次與累計的回饋，油耗、每公里油費等統計仍以油費計算。用 F幣 折抵的那次，油費填折抵前的金額，F幣 才不會重複計算。
 - 新增日期是今天的紀錄時，里程先帶入目前里程（可修改）；日期改成其他天就清空，自己輸入過的里程不會被改掉。文字快速新增的草稿有里程時以草稿為準。
+- 保養／維修表單可以「加照片」（拍照或從相簿選，可多選，每筆最多 20 張）。照片先在手機上縮成長邊 2048 px 的 JPEG，選完就上傳到擁有者 Google 雲端硬碟的「2026 Superb Combi 保養照片」資料夾（不公開），紀錄只存檔案 ID；紀錄列表、表單裡的「📷 1、2…」點了用雲端硬碟開啟，改裝美容清單會標出照片張數。
+  - 沒網路時照片傳不上去，紀錄照樣可以存，之後再編輯這筆補照片；照片還在上傳時按儲存會請你等一下。加油、目前里程的表單沒有照片欄，編輯時沿用原本的照片。
+  - 從紀錄移除照片、取消表單或刪除紀錄，都不會刪掉雲端硬碟裡的檔案；要清掉請直接到資料夾刪。上傳入口不需登入，所以只收 JPEG、每張 4 MB 以內、每天最多 60 張。
+  - CSV 匯出多一欄照片連結；JSON 備份包含照片 ID，加入照片前的備份仍可還原。
 - 新增、編輯、刪除後都會顯示「復原」。表單有尚未儲存的內容時，點背景或按 Esc 不會關閉。
 - 手機版頂部只有一列：簡短標題、同步狀態、淺色模式開關與「新增」，下面是分頁。同步狀態只顯示「已同步／同步中／未同步／離線」，點一下可看完整說明並立即重試；桌面版會在旁邊直接顯示細節。
 - 淺色模式（頂部的太陽按鈕）適合戶外陽光下使用，每台裝置各自記住；頂部列在淺色模式下仍維持深色，iPhone 主畫面模式的狀態列文字才看得清楚。文字對比皆達 4.5:1 以上。

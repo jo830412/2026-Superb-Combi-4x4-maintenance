@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註"];
+const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註", "照片"];
 
 function record(index = 1) {
   return {
@@ -12,12 +12,58 @@ function record(index = 1) {
     category: index % 2 ? "加油" : "保養維修",
     cost: index * 10,
     detail: `紀錄 ${index}`,
-    note: ""
+    note: "",
+    photos: ""
   };
 }
 
 function recordToRow(value) {
-  return [value.date, value.mileage, value.category, value.cost, value.detail, value.note];
+  return [value.date, value.mileage, value.category, value.cost, value.detail, value.note, value.photos ?? ""];
+}
+
+// The smallest byte sequence the upload accepts: a JPEG starts with FF D8 FF.
+function jpegBase64(size = 64) {
+  const bytes = Buffer.alloc(size, 0x20);
+  bytes[0] = 0xFF;
+  bytes[1] = 0xD8;
+  bytes[2] = 0xFF;
+  return bytes.toString("base64");
+}
+
+// Drive advanced service (v3) with only what Code.js uses. Errors mimic the real "File not found" message.
+class FakeDrive {
+  constructor() {
+    this.files = new Map();
+    this.counter = 0;
+    this.Files = {
+      create: (resource, blob) => {
+        this.counter += 1;
+        const id = `fake${resource.mimeType === "application/vnd.google-apps.folder" ? "Folder" : "Photo"}${String(this.counter).padStart(8, "0")}`;
+        this.files.set(id, {
+          id,
+          name: resource.name,
+          mimeType: resource.mimeType,
+          parents: resource.parents || [],
+          bytes: blob ? blob.bytes : null,
+          trashed: false
+        });
+        return { id, name: resource.name, mimeType: resource.mimeType };
+      },
+      get: id => {
+        const file = this.files.get(id);
+        if (!file) throw new Error(`API call to drive.files.get failed with error: File not found: ${id}.`);
+        return { id: file.id, trashed: file.trashed };
+      }
+    };
+  }
+
+  photos() {
+    return [...this.files.values()].filter(file => file.mimeType === "image/jpeg");
+  }
+
+  folders() {
+    return [...this.files.values()].filter(file => file.mimeType === "application/vnd.google-apps.folder");
+  }
 }
 
 // Mimics how Google Sheets parses typed values unless the cell is plain text ("@").
@@ -141,6 +187,8 @@ function loadAppsScript(initialRecords = [], { failBackupInsert = false, maxRows
   const properties = new Map();
   const cache = new Map();
   const fetchCalls = [];
+  const drive = new FakeDrive();
+  const logs = [];
   let uuidCounter = 0;
   const spreadsheet = {
     getSheetByName(name) { return sheets.get(name) || null; },
@@ -155,7 +203,7 @@ function loadAppsScript(initialRecords = [], { failBackupInsert = false, maxRows
     }
   };
   const context = {
-    console,
+    console: { ...console, log: (...args) => logs.push(args.join(" ")) },
     Date,
     JSON,
     Math,
@@ -184,13 +232,22 @@ function loadAppsScript(initialRecords = [], { failBackupInsert = false, maxRows
       getUuid() {
         uuidCounter += 1;
         return `batch-${uuidCounter}`;
+      },
+      // Apps Script returns signed bytes and throws on input that is not base64.
+      base64Decode(value) {
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value)) throw new Error("Could not decode string.");
+        return [...Buffer.from(value, "base64")].map(byte => (byte > 127 ? byte - 256 : byte));
+      },
+      newBlob(bytes, contentType) {
+        return { bytes: Buffer.from(bytes.map(byte => (byte + 256) % 256)), contentType };
       }
     },
+    Drive: drive,
     PropertiesService: {
       getScriptProperties() {
         return {
           getProperty(key) { return properties.get(key) || null; },
-          setProperty(key, value) { properties.set(key, value); }
+          setProperty(key, value) { properties.set(key, String(value)); }
         };
       }
     },
@@ -228,14 +285,16 @@ function loadAppsScript(initialRecords = [], { failBackupInsert = false, maxRows
     doPost,
     readRecords_,
     computeRecordsFingerprint_,
-    getFuelPriceCacheSeconds_
+    getFuelPriceCacheSeconds_,
+    reservePhotoUpload_,
+    setupPhotoStorage
   };`, context);
   const backupBatches = () => {
     const backup = sheets.get("保養紀錄備份");
     if (!backup || backup.getLastRow() < 2) return [];
     return [...new Set(backup.getRange(2, 2, backup.getLastRow() - 1, 1).getDisplayValues().map(row => row[0]))];
   };
-  return { api: context.__testApi, events, sheets, mainSheet, cache, fetchCalls, backupBatches };
+  return { api: context.__testApi, events, sheets, mainSheet, cache, fetchCalls, backupBatches, drive, properties, logs };
 }
 
 function parseResponse(output) {
@@ -257,6 +316,7 @@ function syncState(api) {
 module.exports = {
   HEADERS,
   record,
+  jpegBase64,
   FakeSheet,
   loadAppsScript,
   parseResponse,

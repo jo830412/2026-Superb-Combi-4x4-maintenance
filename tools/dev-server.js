@@ -1,9 +1,11 @@
-// 本機預覽：提供網站檔案，並用真正的 apps-script/Code.js（假試算表）回應 API，
-// 不會讀寫正式的 Google Sheet。
+// 本機預覽：提供網站檔案，並用真正的 apps-script/Code.js（假試算表、假雲端硬碟）回應 API，
+// 不會讀寫正式的 Google Sheet 或雲端硬碟。
 //
 //   node tools/dev-server.js [port]
 //
 // 開啟 http://localhost:4173/ ；模擬斷線：/__offline?on=1，恢復：/__offline?on=0
+// 上傳的照片只存在記憶體，可用 fetch("/__photos/<檔案 ID>") 取回檢查壓縮結果
+// （紀錄上的照片連結仍指向雲端硬碟，本機預覽打不開）。
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
@@ -114,6 +116,10 @@ http.createServer((req, res) => {
   if (url.pathname === "/api") {
     handleApi(req, res, url).catch(error => send(res, 500, String(error)));
     return;
+  }
+  if (url.pathname.startsWith("/__photos/")) {
+    const photo = backend.drive.files.get(decodeURIComponent(url.pathname.slice("/__photos/".length)));
+    return photo?.bytes ? send(res, 200, photo.bytes, "image/jpeg") : send(res, 404, "not found");
   }
   serveStatic(url, res);
 }).listen(PORT, () => {

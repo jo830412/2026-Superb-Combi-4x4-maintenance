@@ -1051,3 +1051,187 @@ test("clearing the F幣 field to retype it keeps the F幣 and coupon fields open
   api.applyFuelOffer("npc-self");
   assert.equal(element("fuelLogExtraOffer").hidden, true);
 });
+
+const { deferred } = require("./helpers/app-harness");
+
+const PHOTO_A = "fakePhoto00000001";
+const PHOTO_B = "fakePhoto00000002";
+
+function syncedMeta(records = []) {
+  return { version: 1, baseFingerprint: "sheet-v1", baseRecords: records, dirty: false, pendingRestore: false, lastAttempt: null };
+}
+
+// 假後端：照片依序拿到檔案 ID（可指定第幾張失敗、或先卡住不回應），同步照常成功。
+function photoBackend({ fail = () => false, hold = false } = {}) {
+  const backend = { uploads: [], syncs: [], held: [] };
+  backend.fetchImpl = async (url, options = {}) => {
+    if ((options.method || "GET") === "GET") {
+      return { ok: true, json: async () => ({ records: [], fingerprint: "sheet-v1", updatedAt: "" }) };
+    }
+    const body = JSON.parse(options.body);
+    if (body.action !== "uploadPhoto") {
+      backend.syncs.push(body);
+      return { ok: true, json: async () => ({ status: "success", fingerprint: `sheet-v${backend.syncs.length + 1}` }) };
+    }
+    backend.uploads.push(body);
+    const reply = fail(backend.uploads.length)
+      ? { status: "rejected", message: "只接受 JPEG 照片" }
+      : { status: "success", id: `fakePhoto${String(backend.uploads.length).padStart(8, "0")}` };
+    const response = { ok: true, json: async () => reply };
+    if (!hold) return response;
+    const pending = deferred();
+    backend.held.push(() => pending.resolve(response));
+    return pending.promise;
+  };
+  return backend;
+}
+
+function pickPhotos(api, count) {
+  const files = Array.from({ length: count }, (_, index) => ({ name: `IMG_${index}.HEIC` }));
+  return api.handleFormPhotoInput({ target: { files, value: "IMG_0.HEIC" } });
+}
+
+function flushAsync() {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+test("photos picked in the record form upload first and are saved with the record", async () => {
+  const backend = photoBackend();
+  const { api, element } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.assign("compressPhoto", async file => `/9j/${file.name}`);
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta());
+
+  api.openAddModal();
+  element("formCategory").value = "改裝升級";
+  element("formCost").value = "71000";
+  element("formDetail").value = "ZL1 卡鉗\n含盤 380";
+  await pickPhotos(api, 2);
+
+  assert.deepEqual(backend.uploads.map(upload => upload.data), ["/9j/IMG_0.HEIC", "/9j/IMG_1.HEIC"]);
+  assert.equal(backend.uploads[0].name, "2026-10-02 改裝升級 ZL1 卡鉗.jpg");
+  assert.equal(element("formPhotoList").hidden, false);
+  assert.match(element("formPhotoList").innerHTML, /href="https:\/\/drive\.google\.com\/file\/d\/fakePhoto00000001\/view" target="_blank" rel="noopener"/);
+  assert.match(element("formPhotoList").innerHTML, /照片 2/);
+
+  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  await api.whenSyncIdle();
+
+  assert.equal(api.getRecords()[0].photos, `${PHOTO_A},${PHOTO_B}`);
+  assert.equal(backend.syncs.at(-1).records[0].photos, `${PHOTO_A},${PHOTO_B}`);
+});
+
+test("saving waits for photos still uploading, and a form closed mid-upload ignores them", async () => {
+  const backend = photoBackend({ hold: true });
+  const { api, element } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.assign("compressPhoto", async () => "/9j/");
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta());
+
+  api.openAddModal();
+  element("formCategory").value = "保養";
+  element("formDetail").value = "7,500 km 定期保養";
+  const picking = pickPhotos(api, 1);
+  await flushAsync();
+  assert.match(element("formPhotoList").innerHTML, /上傳中，還有 1 張/);
+
+  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+  assert.equal(api.getRecords().length, 0);
+  assert.match(element("formMessage").textContent, /照片還在上傳/);
+
+  api.closeModal();
+  backend.held[0]();
+  await picking;
+  assert.equal(element("formPhotoList").innerHTML, "");
+  api.openAddModal();
+  assert.equal(element("formPhotoList").hidden, true);
+});
+
+test("failed and offline photo uploads add nothing and say why", async () => {
+  const backend = photoBackend({ fail: count => count === 1 });
+  const { api, element, context } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.assign("compressPhoto", async () => "/9j/");
+
+  api.openAddModal();
+  await pickPhotos(api, 2);
+  assert.match(element("formMessage").textContent, /1 張照片沒有傳上去（只接受 JPEG 照片）/);
+  assert.match(element("formPhotoList").innerHTML, /fakePhoto00000002/);
+  assert.doesNotMatch(element("formPhotoList").innerHTML, /照片 2/);
+
+  context.navigator = { onLine: false };
+  await pickPhotos(api, 1);
+  assert.equal(backend.uploads.length, 2);
+  assert.match(element("formMessage").textContent, /目前沒有網路/);
+});
+
+test("editing keeps a record's photos and removing one keeps the rest", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([{ date: "2026-09-19", mileage: 5600, category: "改裝升級", cost: 71000, detail: "ZL1", note: "", photos: `${PHOTO_A},${PHOTO_B}` }]);
+
+  api.openEditModal(0);
+  assert.match(element("formPhotoList").innerHTML, /照片 2/);
+  api.removeFormPhoto(0);
+  assert.match(element("formMessage").textContent, /照片檔仍留在雲端硬碟/);
+  api.handleFormSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(api.getRecords()[0].photos, PHOTO_B);
+});
+
+test("forms without a photo field keep the photos of the record they update", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([{ date: "2026-10-02", mileage: 6000, category: "其他", cost: 0, detail: "目前里程更新", note: "用於儀表板里程計算", photos: PHOTO_A }]);
+
+  api.openMileageModal();
+  element("currentMileageInput").value = "6100";
+  api.handleMileageSubmit({ preventDefault() {}, submitter: createElement() });
+
+  assert.equal(api.getRecords().length, 1);
+  assert.equal(api.getRecords()[0].mileage, 6100);
+  assert.equal(api.getRecords()[0].photos, PHOTO_A);
+});
+
+test("record lists link each photo to Drive and drop anything that is not a file id", () => {
+  const { api, element } = loadApp({ today: TODAY });
+  api.setRecords([{ date: "2026-09-19", mileage: 5600, category: "改裝升級", cost: 71000, detail: "ZL1", note: "", photos: `${PHOTO_A}, "><img src=x>,${PHOTO_A}\n${PHOTO_B}` }]);
+
+  api.renderRecords();
+  api.renderUpgradeCostList();
+  const html = element("recordsContainer").innerHTML;
+
+  // 手機摘要與桌面欄位各一組。
+  assert.equal(html.match(/class="photo-link"/g).length, 4);
+  assert.match(html, /href="https:\/\/drive\.google\.com\/file\/d\/fakePhoto00000002\/view" target="_blank" rel="noopener" aria-label="在雲端硬碟開啟照片 2"/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(element("upgradeCostItems").innerHTML, /· 📷 2</);
+  assert.equal(api.canonicalizeRecord(api.getRecords()[0]).photos, `${PHOTO_A},${PHOTO_B}`);
+});
+
+test("records saved without a photos field still sync one for the updated Apps Script", async () => {
+  const backend = photoBackend();
+  const { api } = loadApp({ today: TODAY, fetchImpl: backend.fetchImpl });
+  api.setRecords([]);
+  api.setSyncMeta(syncedMeta());
+
+  api.setRecords([{ date: "2026-10-02", mileage: 6000, category: "其他", cost: 0, detail: "目前里程更新", note: "" }]);
+  await api.saveRecords(api.getRecords());
+
+  assert.equal(backend.syncs[0].records[0].photos, "");
+});
+
+test("backups from before photos still restore, and the CSV lists photo links", async () => {
+  let csvBlob = null;
+  const { api } = loadApp({
+    today: TODAY,
+    urlApi: { createObjectURL(blob) { csvBlob = blob; return "blob:test"; }, revokeObjectURL() {} }
+  });
+  const older = { date: "2026-09-19", mileage: 5600, category: "改裝升級", cost: 71000, detail: "ZL1", note: "" };
+
+  assert.equal(api.validateBackupEnvelope({ format: "superb-maintenance-backup", version: 1, records: [older] }).ok, true);
+  assert.equal(api.validateBackupEnvelope({ format: "superb-maintenance-backup", version: 1, records: [{ ...older, photos: [PHOTO_A] }] }).ok, false);
+
+  api.setRecords([{ ...older, photos: `${PHOTO_A},${PHOTO_B}` }]);
+  api.exportCSV();
+  const csv = await csvBlob.text();
+  assert.match(csv, /,備註,照片\n/);
+  assert.match(csv, /,https:\/\/drive\.google\.com\/file\/d\/fakePhoto00000001\/view https:\/\/drive\.google\.com\/file\/d\/fakePhoto00000002\/view$/);
+});

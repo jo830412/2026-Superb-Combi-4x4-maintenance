@@ -150,7 +150,8 @@ function fuelRecord() {
     category: "加油",
     cost: 1000,
     detail: "加油｜98｜31.00 L｜加滿｜牌告 33.3 元/L｜優惠 1.8 元/L｜實付 31.5 元/L",
-    note: "全國加油站"
+    note: "全國加油站",
+    photos: ""
   };
 }
 

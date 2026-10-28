@@ -299,6 +299,13 @@
               <label class="form-label" for="formNote">備註</label>
               <input type="text" id="formNote" class="form-input" placeholder="任何補充說明..."/>
             </div>
+            <div class="form-group form-group-full">
+              <span class="form-label" id="formPhotoLabel">照片</span>
+              <div class="photo-list" id="formPhotoList" role="group" aria-labelledby="formPhotoLabel" hidden></div>
+              <button type="button" class="btn btn-ghost btn-sm photo-add-btn" id="btnAddPhoto">📷 加照片</button>
+              <input id="formPhotoInput" type="file" accept="image/*" multiple hidden/>
+              <div class="form-help">保養單、施工單、改裝件都可以拍；照片存在你的 Google 雲端硬碟，不公開。</div>
+            </div>
             <div class="form-message" id="formMessage"></div>
           </div>
           <div class="modal-footer">

@@ -17,6 +17,14 @@ const APP_VERSION = "v2026.10.22.1";
 const THEME_STORAGE_KEY = "newSuperbTheme_v1";
 const IGNORED_QUALITY_ISSUES_KEY = "newSuperbIgnoredQualityIssues_v1";
 const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxroASHXEpkl569YBdUD4WFBQc-icvnaHI4NHL0YgCQHVZ3BA/exec";
+// 照片存在擁有者的 Google 雲端硬碟（不公開），紀錄只記以逗號分隔的檔案 ID，點了用雲端硬碟開啟。
+const PHOTO_VIEW_URL_PREFIX = "https://drive.google.com/file/d/";
+const PHOTO_ID_PATTERN = /^[A-Za-z0-9_-]{10,200}$/;
+const MAX_PHOTOS_PER_RECORD = 20;
+// 上傳前在手機上縮成長邊 2048 px 的 JPEG：保養單上的小字仍看得清楚，一張約幾百 KB。
+const PHOTO_MAX_EDGE_PX = 2048;
+const PHOTO_JPEG_QUALITY = 0.8;
+const PHOTO_UPLOAD_TIMEOUT_MS = 60000;
 const WARRANTY_START_DATE = "2026-05-28";
 const VEHICLE_DELIVERY_DATE = WARRANTY_START_DATE;
 const VEHICLE_DELIVERY_MILEAGE_KM = 0;
@@ -304,13 +312,27 @@ function canonicalizeRecord(record) {
     category: toText(record?.category),
     cost: Number.isFinite(cost) ? cost : 0,
     detail: toText(record?.detail),
-    note: toText(record?.note)
+    note: toText(record?.note),
+    photos: parsePhotoIds(record?.photos).join(",")
   };
 }
 
 function recordKey(record) {
   const value = canonicalizeRecord(record);
-  return JSON.stringify([value.date, value.mileage, value.category, value.cost, value.detail, value.note]);
+  return JSON.stringify([value.date, value.mileage, value.category, value.cost, value.detail, value.note, value.photos]);
+}
+
+// 只留下像檔案 ID 的內容（與 Apps Script 相同的規則），不合格的值不會讓整次同步被拒絕。
+function parsePhotoIds(value) {
+  const ids = [];
+  String(value ?? "").split(/[\s,]+/).forEach(id => {
+    if (PHOTO_ID_PATTERN.test(id) && !ids.includes(id)) ids.push(id);
+  });
+  return ids.slice(0, MAX_PHOTOS_PER_RECORD);
+}
+
+function getPhotoViewUrl(id) {
+  return PHOTO_VIEW_URL_PREFIX + encodeURIComponent(id) + "/view";
 }
 
 function countRecordKeys(list) {
@@ -899,6 +921,10 @@ function getStoredRecordValidationError(record) {
   }
   if (!Number.isFinite(record.cost)) {
     return "紀錄的費用必須是數字";
+  }
+  // 加入照片前匯出的備份沒有 photos，照樣可以還原。
+  if (record.photos !== undefined && typeof record.photos !== "string") {
+    return "紀錄的照片必須是文字";
   }
   if (!record.date.trim() && !record.category.trim() && !record.detail.trim()) {
     return "紀錄沒有日期、類別與內容";
@@ -2524,15 +2550,18 @@ function renderUpgradeCostList() {
   list.hidden = entries.length === 0;
   const total = entries.reduce((sum, { record }) => sum + asNumber(record.cost), 0);
   summary.textContent = `改裝美容清單 · ${entries.length} 項 · ${formatCost(total)}`;
-  items.innerHTML = entries.map(({ record, index }) => `
+  items.innerHTML = entries.map(({ record, index }) => {
+    const photoCount = parsePhotoIds(record.photos).length;
+    return `
     <button class="overview-record upgrade-record" type="button" data-upgrade-record="${index}">
       <span>
         <strong>${escapeHtml(String(record.detail || "未填詳細內容").split(/\r?\n/)[0])}</strong>
-        <small>${escapeHtml(record.date || "未填日期")} · ${escapeHtml(record.category || "其他")}</small>
+        <small>${escapeHtml(record.date || "未填日期")} · ${escapeHtml(record.category || "其他")}${photoCount ? ` · 📷 ${photoCount}` : ""}</small>
       </span>
       <span>${escapeHtml(formatCost(asNumber(record.cost)))}</span>
     </button>
-  `).join("");
+  `;
+  }).join("");
 }
 
 // 總覽「改裝美容」的清單按鈕：切到分析頁並展開清單。
@@ -2990,8 +3019,9 @@ function renderRecords() {
     const compactMileage = mileageValue ? mileageValue.toLocaleString("zh-TW") + " km" : "未填里程";
     const compactCost = costValue ? "NT$ " + costValue.toLocaleString("zh-TW") : "—";
     const safeDetail = r.detail ? escapeHtml(r.detail) : "—";
-    const noteHtml = r.note ? `<div class="record-note">📝 ${escapeHtml(r.note)}</div>` : "";
-    const mobileNoteHtml = r.note ? `<div class="record-mobile-meta">${compactMileage} · ${escapeHtml(r.note)}</div>` : `<div class="record-mobile-meta">${compactMileage}</div>`;
+    const photoHtml = renderRecordPhotoLinks(r);
+    const noteHtml = (r.note ? `<div class="record-note">📝 ${escapeHtml(r.note)}</div>` : "") + photoHtml;
+    const mobileNoteHtml = (r.note ? `<div class="record-mobile-meta">${compactMileage} · ${escapeHtml(r.note)}</div>` : `<div class="record-mobile-meta">${compactMileage}</div>`) + photoHtml;
 
     html += `
     <div class="record-item ${isStatus ? "record-status" : ""}" data-idx="${origIdx}">
@@ -3039,6 +3069,14 @@ function renderRecords() {
 
 function resetRecordsPaging() {
   recordsVisibleLimit = RECORDS_PAGE_SIZE;
+}
+
+function renderRecordPhotoLinks(record) {
+  const ids = parsePhotoIds(record.photos);
+  if (!ids.length) return "";
+  return `<div class="record-photos">${ids.map((id, index) => `
+    <a class="photo-link" href="${escapeHtml(getPhotoViewUrl(id))}" target="_blank" rel="noopener" aria-label="在雲端硬碟開啟照片 ${index + 1}">📷 ${index + 1}</a>`).join("")}
+  </div>`;
 }
 
 // ============================================================
@@ -3124,6 +3162,142 @@ function handleRecordFormInput(id) {
   if (id === "formMileage" || id === "formDate") updateMileageHint();
 }
 
+// ------------------------------------------------------------
+// 照片：選了就上傳到雲端硬碟，表單只記檔案 ID；儲存紀錄時才寫進這筆紀錄。
+// 沒網路時紀錄照樣可以存，照片之後再編輯這筆補上。
+// ------------------------------------------------------------
+let formPhotoIds = [];
+let formPhotoPending = 0;
+// 表單每次開關都換一個編號：關掉或換成別筆後才傳完的照片不會加錯紀錄。
+let formPhotoSession = 0;
+
+function resetFormPhotos(value = "") {
+  formPhotoSession += 1;
+  formPhotoIds = parsePhotoIds(value);
+  formPhotoPending = 0;
+  renderFormPhotos();
+}
+
+function renderFormPhotos() {
+  const list = document.getElementById("formPhotoList");
+  const chips = formPhotoIds.map((id, index) => `
+    <span class="photo-chip">
+      <a class="photo-chip-link" href="${escapeHtml(getPhotoViewUrl(id))}" target="_blank" rel="noopener">📷 照片 ${index + 1}</a>
+      <button class="photo-chip-remove" type="button" data-photo-remove="${index}" aria-label="移除照片 ${index + 1}">✕</button>
+    </span>`);
+  if (formPhotoPending) {
+    chips.push(`<span class="photo-chip photo-chip-pending" role="status">上傳中，還有 ${formPhotoPending} 張…</span>`);
+  }
+  list.innerHTML = chips.join("");
+  list.hidden = chips.length === 0;
+}
+
+function buildPhotoName() {
+  const detail = document.getElementById("formDetail").value.trim().split(/\r?\n/)[0].slice(0, 30);
+  return [
+    document.getElementById("formDate").value || getTodayString(),
+    document.getElementById("formCategory").value || "紀錄",
+    detail
+  ].filter(Boolean).join(" ") + ".jpg";
+}
+
+// <img> 會套用 EXIF 方向，直拍的保養單不會轉向；透明背景（PNG 截圖）鋪成白色。
+async function compressPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("讀不到這張照片，請改用 JPEG 或 PNG"));
+      image.src = url;
+    });
+    const scale = Math.min(1, PHOTO_MAX_EDGE_PX / Math.max(image.naturalWidth, image.naturalHeight, 1));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", PHOTO_JPEG_QUALITY);
+    return dataUrl.slice(dataUrl.indexOf(",") + 1);
+  } finally {
+    revokeObjectUrlSafely(url);
+  }
+}
+
+async function uploadPhoto(data, name) {
+  const res = await fetchWithTimeout(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "uploadPhoto", name, data }),
+    redirect: "follow"
+  }, PHOTO_UPLOAD_TIMEOUT_MS);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const result = await res.json();
+  if (result?.status !== "success" || !PHOTO_ID_PATTERN.test(String(result.id || ""))) {
+    throw new Error(result?.message || "雲端沒有回傳照片");
+  }
+  return result.id;
+}
+
+function describePhotoUploadError(error) {
+  if (error?.name === "AbortError") return "連線逾時";
+  if (error instanceof TypeError) return "連不上雲端";
+  return error?.message || String(error);
+}
+
+async function handleFormPhotoInput(event) {
+  const input = event.target;
+  const files = [...(input.files || [])];
+  input.value = "";
+  if (!files.length) return;
+  clearFormMessage();
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    showFormMessage("error", "目前沒有網路，照片傳不上去。紀錄可以先存，有網路時再編輯這筆補上照片。");
+    return;
+  }
+  const picked = files.slice(0, Math.max(0, MAX_PHOTOS_PER_RECORD - formPhotoIds.length - formPhotoPending));
+  if (!picked.length) {
+    showFormMessage("error", `每筆紀錄最多 ${MAX_PHOTOS_PER_RECORD} 張照片。`);
+    return;
+  }
+
+  const session = formPhotoSession;
+  const failures = [];
+  formPhotoPending += picked.length;
+  renderFormPhotos();
+  for (const file of picked) {
+    let id = "";
+    try {
+      id = await uploadPhoto(await compressPhoto(file), buildPhotoName());
+    } catch (error) {
+      console.error("照片上傳失敗", error);
+      failures.push(describePhotoUploadError(error));
+    }
+    if (session !== formPhotoSession) return;
+    formPhotoPending -= 1;
+    if (id) {
+      formPhotoIds.push(id);
+      setDialogFormDirty("modal", true);
+    }
+    renderFormPhotos();
+  }
+
+  if (failures.length) {
+    showFormMessage("error", `${failures.length} 張照片沒有傳上去（${failures[0]}），可以再選一次。`);
+  } else if (files.length > picked.length) {
+    showFormMessage("info", `每筆紀錄最多 ${MAX_PHOTOS_PER_RECORD} 張照片，多選的 ${files.length - picked.length} 張沒有上傳。`);
+  }
+}
+
+function removeFormPhoto(index) {
+  if (!(index >= 0 && index < formPhotoIds.length)) return;
+  formPhotoIds.splice(index, 1);
+  setDialogFormDirty("modal", true);
+  renderFormPhotos();
+  showFormMessage("info", "已從這筆紀錄移除，照片檔仍留在雲端硬碟。");
+}
+
 function openAddModal() {
   document.getElementById("modalTitle").textContent = "新增保養/維修紀錄";
   document.getElementById("editIndex").value = "-1";
@@ -3131,6 +3305,7 @@ function openAddModal() {
   document.getElementById("formDate").value = getTodayString();
   document.getElementById("formMileage").dataset.autoMileage = "true";
   syncAutoMileage();
+  resetFormPhotos();
   clearFormMessage();
   updateMileageHint(-1);
   openDialog("modal");
@@ -3162,6 +3337,7 @@ function openEditModal(idx) {
   document.getElementById("formTemplate").value = "";
   document.getElementById("formDetail").value = r.detail || "";
   document.getElementById("formNote").value = r.note || "";
+  resetFormPhotos(r.photos);
   clearFormMessage();
   updateMileageHint(idx);
   openDialog("modal");
@@ -3169,6 +3345,7 @@ function openEditModal(idx) {
 
 function closeModal() {
   closeDialog("modal");
+  resetFormPhotos();
   clearFormMessage();
 }
 
@@ -4466,6 +4643,10 @@ function handleFormSubmit(e) {
     showFormMessage("error", "里程與費用不能是負數。");
     return;
   }
+  if (formPhotoPending) {
+    showFormMessage("info", "照片還在上傳，傳完再按儲存。");
+    return;
+  }
 
   const rec = {
     date:     document.getElementById("formDate").value,
@@ -4473,7 +4654,8 @@ function handleFormSubmit(e) {
     category: document.getElementById("formCategory").value,
     detail:   document.getElementById("formDetail").value.trim(),
     cost,
-    note:     document.getElementById("formNote").value.trim()
+    note:     document.getElementById("formNote").value.trim(),
+    photos:   formPhotoIds.join(",")
   };
 
   if (!rec.detail) {
@@ -4549,6 +4731,10 @@ function findRecordIndexFor(target) {
 
 // change: { type: "add" | "edit" | "delete", index, before, after }
 function commitRecordChange(change, { message, close } = {}) {
+  // 加油、目前里程的表單沒有照片：編輯時沿用這筆原本的照片。
+  if (change.type === "edit" && change.after.photos === undefined && change.before?.photos) {
+    change.after = { ...change.after, photos: change.before.photos };
+  }
   if (change.type === "add") records.push(change.after);
   else if (change.type === "edit") records[change.index] = change.after;
   else if (change.type === "delete") records.splice(change.index, 1);
@@ -4587,14 +4773,15 @@ function undoLastChange() {
 function exportCSV() {
   const sorted = [...records].sort(compareRecordsNewestFirst);
   const BOM = "\uFEFF";
-  const header = ["日期", "里程(km)", "類別", "詳細內容", "費用(NT$)", "備註"];
+  const header = ["日期", "里程(km)", "類別", "詳細內容", "費用(NT$)", "備註", "照片"];
   const rows = sorted.map(r => [
     r.date,
     r.mileage ?? "",
     r.category,
     `"${(r.detail || "").replace(/"/g, '""')}"`,
     asNumber(r.cost),
-    `"${(r.note || "").replace(/"/g, '""')}"`
+    `"${(r.note || "").replace(/"/g, '""')}"`,
+    parsePhotoIds(r.photos).map(getPhotoViewUrl).join(" ")
   ]);
   const csv = BOM + [header.join(","), ...rows.map(r => r.join(","))].join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -4834,6 +5021,12 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("formTemplate").addEventListener("change", e => applyRecordTemplate(e.target.value));
   ["formDate", "formMileage", "formCategory", "formCost", "formDetail", "formNote"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => handleRecordFormInput(id));
+  });
+  document.getElementById("btnAddPhoto").addEventListener("click", () => document.getElementById("formPhotoInput").click());
+  document.getElementById("formPhotoInput").addEventListener("change", handleFormPhotoInput);
+  document.getElementById("formPhotoList").addEventListener("click", event => {
+    const button = event.target.closest("[data-photo-remove]");
+    if (button) removeFormPhoto(Number(button.dataset.photoRemove));
   });
 
   // 目前里程更新
