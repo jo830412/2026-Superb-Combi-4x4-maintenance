@@ -488,7 +488,8 @@ test("cloud state accepts legacy arrays and versioned envelopes", () => {
   }))), {
     records: [record],
     fingerprint: "sheet-v2",
-    updatedAt: "2026-09-04T08:00:00.000Z"
+    updatedAt: "2026-09-04T08:00:00.000Z",
+    photoFolderId: ""
   });
 });
 

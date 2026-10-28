@@ -1252,6 +1252,7 @@ body {
   font-size: 0.82rem;
 }
 .photo-chip-link,
+.photo-chip-label,
 .photo-chip-pending {
   display: inline-flex;
   align-items: center;
@@ -1262,7 +1263,15 @@ body {
   color: var(--blue);
   text-decoration: none;
 }
+.photo-chip-label { color: var(--text-primary); }
 .photo-chip-pending { color: var(--text-secondary); }
+/* 還沒上傳的新照片用虛線框，按儲存後才變成可開啟的照片。 */
+.photo-chip-new { border-style: dashed; }
+.photo-folder-link {
+  margin-left: 4px;
+  color: var(--blue);
+  white-space: nowrap;
+}
 .photo-chip-remove {
   min-width: 36px;
   border: none;
@@ -1284,6 +1293,7 @@ body {
 @media (max-width: 768px) {
   .photo-link { min-height: 36px; }
   .photo-chip-link,
+  .photo-chip-label,
   .photo-chip-pending { min-height: 44px; }
   .photo-chip-remove { min-width: 44px; }
   .photo-add-btn { min-height: 44px; }

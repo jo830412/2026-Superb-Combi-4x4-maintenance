@@ -20,6 +20,9 @@ const API_URL = "https://script.google.com/macros/s/AKfycbwg3zHXptNuR1tCFs_lFYxr
 // 照片存在擁有者的 Google 雲端硬碟（不公開），紀錄只記以逗號分隔的檔案 ID，點了用雲端硬碟開啟。
 const PHOTO_VIEW_URL_PREFIX = "https://drive.google.com/file/d/";
 const PHOTO_ID_PATTERN = /^[A-Za-z0-9_-]{10,200}$/;
+// 與 Apps Script 的 PHOTO_FOLDER_NAME 相同；資料夾 ID 由 syncState 提供。
+const PHOTO_FOLDER_NAME = "2026 Superb Combi 保養照片";
+const PHOTO_FOLDER_KEY = "newSuperbPhotoFolderId_v1";
 const MAX_PHOTOS_PER_RECORD = 20;
 // 上傳前在手機上縮成長邊 2048 px 的 JPEG：保養單上的小字仍看得清楚，一張約幾百 KB。
 const PHOTO_MAX_EDGE_PX = 2048;
@@ -148,6 +151,7 @@ let backupDownloadSpy = null;
 let pendingCalendarTask = null;
 let renderedOwnerActions = [];
 let ignoredQualityIssues = loadIgnoredQualityIssues();
+let photoFolderId = loadPhotoFolderId();
 
 const RECORD_TEMPLATES = {
   oil: {
@@ -292,7 +296,8 @@ function parseCloudState(payload) {
     return {
       records: payload.records,
       fingerprint: typeof payload.fingerprint === "string" ? payload.fingerprint : "",
-      updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : ""
+      updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : "",
+      photoFolderId: typeof payload.photoFolderId === "string" ? payload.photoFolderId : ""
     };
   }
   throw new Error("雲端資料格式不正確");
@@ -569,6 +574,7 @@ async function reconcileWithCloud() {
     return false;
   }
   lastCloudCheckAt = Date.now();
+  rememberPhotoFolder(cloud.photoFolderId);
   if (isRecordEditorOpen()) {
     // 表單開著時不替換紀錄，避免編輯中的索引對到別筆；關閉後再同步。
     syncDeferredForEditor = true;
@@ -1067,8 +1073,7 @@ function findLikelyDuplicates(record, { excludeIndex = -1 } = {}) {
 function requestRecordSave(record, { editIndex = -1, commit }) {
   const candidates = findLikelyDuplicates(record, { excludeIndex: editIndex });
   if (!candidates.length) {
-    commit();
-    return;
+    return commit();
   }
 
   pendingDuplicateSave = commit;
@@ -3163,18 +3168,22 @@ function handleRecordFormInput(id) {
 }
 
 // ------------------------------------------------------------
-// 照片：選了就上傳到雲端硬碟，表單只記檔案 ID；儲存紀錄時才寫進這筆紀錄。
-// 沒網路時紀錄照樣可以存，照片之後再編輯這筆補上。
+// 照片：選照片只在手機上壓縮，按「儲存」才上傳到雲端硬碟，取消就什麼都不會上傳。
+// 紀錄只記檔案 ID。沒網路時新照片傳不上去：可以等有網路再存，或先移除新照片存紀錄，之後再編輯補上。
 // ------------------------------------------------------------
 let formPhotoIds = [];
-let formPhotoPending = 0;
-// 表單每次開關都換一個編號：關掉或換成別筆後才傳完的照片不會加錯紀錄。
+let formNewPhotos = [];
+let formPhotoPreparing = 0;
+let formPhotoUploading = false;
+// 表單每次開關都換一個編號：關掉或換成別筆後，還在處理或上傳的照片不會加錯紀錄。
 let formPhotoSession = 0;
 
 function resetFormPhotos(value = "") {
   formPhotoSession += 1;
   formPhotoIds = parsePhotoIds(value);
-  formPhotoPending = 0;
+  formNewPhotos = [];
+  formPhotoPreparing = 0;
+  setFormPhotoUploading(false);
   renderFormPhotos();
 }
 
@@ -3185,19 +3194,58 @@ function renderFormPhotos() {
       <a class="photo-chip-link" href="${escapeHtml(getPhotoViewUrl(id))}" target="_blank" rel="noopener">📷 照片 ${index + 1}</a>
       <button class="photo-chip-remove" type="button" data-photo-remove="${index}" aria-label="移除照片 ${index + 1}">✕</button>
     </span>`);
-  if (formPhotoPending) {
-    chips.push(`<span class="photo-chip photo-chip-pending" role="status">上傳中，還有 ${formPhotoPending} 張…</span>`);
+  formNewPhotos.forEach((_, index) => chips.push(`
+    <span class="photo-chip photo-chip-new">
+      <span class="photo-chip-label">📷 新照片 ${index + 1}</span>
+      <button class="photo-chip-remove" type="button" data-photo-remove-new="${index}" aria-label="移除新照片 ${index + 1}">✕</button>
+    </span>`));
+  if (formPhotoPreparing) {
+    chips.push(`<span class="photo-chip photo-chip-pending" role="status">處理中，還有 ${formPhotoPreparing} 張…</span>`);
   }
   list.innerHTML = chips.join("");
   list.hidden = chips.length === 0;
+  renderFormPhotoHelp();
 }
 
-function buildPhotoName() {
+function renderFormPhotoHelp() {
+  const folderLink = photoFolderId
+    ? `<a class="photo-folder-link" href="${escapeHtml(getPhotoFolderUrl(photoFolderId))}" target="_blank" rel="noopener">開啟照片資料夾</a>`
+    : "";
+  document.getElementById("formPhotoHelp").innerHTML =
+    `保養單、施工單、改裝件都可以拍。按「儲存」才會上傳到你 Google 雲端硬碟的「${PHOTO_FOLDER_NAME}」資料夾（不公開）。${folderLink}`;
+}
+
+function loadPhotoFolderId() {
+  try {
+    const saved = localStorage.getItem(PHOTO_FOLDER_KEY) || "";
+    return PHOTO_ID_PATTERN.test(saved) ? saved : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+// 雲端回傳照片資料夾後記在這台裝置，離線時表單也能顯示資料夾連結。
+function rememberPhotoFolder(id) {
+  if (!PHOTO_ID_PATTERN.test(id || "") || id === photoFolderId) return;
+  photoFolderId = id;
+  try {
+    localStorage.setItem(PHOTO_FOLDER_KEY, id);
+  } catch (error) {}
+  renderFormPhotoHelp();
+}
+
+function getPhotoFolderUrl(id) {
+  return "https://drive.google.com/drive/folders/" + encodeURIComponent(id);
+}
+
+// 檔名帶日期、類別與內容，在雲端硬碟依名稱排序就是依日期排。
+function buildPhotoName(position) {
   const detail = document.getElementById("formDetail").value.trim().split(/\r?\n/)[0].slice(0, 30);
   return [
     document.getElementById("formDate").value || getTodayString(),
     document.getElementById("formCategory").value || "紀錄",
-    detail
+    detail,
+    String(position)
   ].filter(Boolean).join(" ") + ".jpg";
 }
 
@@ -3250,13 +3298,10 @@ async function handleFormPhotoInput(event) {
   const input = event.target;
   const files = [...(input.files || [])];
   input.value = "";
-  if (!files.length) return;
+  if (!files.length || formPhotoUploading) return;
   clearFormMessage();
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    showFormMessage("error", "目前沒有網路，照片傳不上去。紀錄可以先存，有網路時再編輯這筆補上照片。");
-    return;
-  }
-  const picked = files.slice(0, Math.max(0, MAX_PHOTOS_PER_RECORD - formPhotoIds.length - formPhotoPending));
+  const room = MAX_PHOTOS_PER_RECORD - formPhotoIds.length - formNewPhotos.length - formPhotoPreparing;
+  const picked = files.slice(0, Math.max(0, room));
   if (!picked.length) {
     showFormMessage("error", `每筆紀錄最多 ${MAX_PHOTOS_PER_RECORD} 張照片。`);
     return;
@@ -3264,38 +3309,84 @@ async function handleFormPhotoInput(event) {
 
   const session = formPhotoSession;
   const failures = [];
-  formPhotoPending += picked.length;
+  formPhotoPreparing += picked.length;
   renderFormPhotos();
   for (const file of picked) {
-    let id = "";
+    let data = "";
     try {
-      id = await uploadPhoto(await compressPhoto(file), buildPhotoName());
+      data = await compressPhoto(file);
     } catch (error) {
-      console.error("照片上傳失敗", error);
-      failures.push(describePhotoUploadError(error));
+      console.error("照片處理失敗", error);
+      failures.push(error?.message || String(error));
     }
     if (session !== formPhotoSession) return;
-    formPhotoPending -= 1;
-    if (id) {
-      formPhotoIds.push(id);
+    formPhotoPreparing -= 1;
+    if (data) {
+      formNewPhotos.push(data);
       setDialogFormDirty("modal", true);
     }
     renderFormPhotos();
   }
 
   if (failures.length) {
-    showFormMessage("error", `${failures.length} 張照片沒有傳上去（${failures[0]}），可以再選一次。`);
+    showFormMessage("error", `${failures.length} 張照片無法加入（${failures[0]}）。`);
   } else if (files.length > picked.length) {
-    showFormMessage("info", `每筆紀錄最多 ${MAX_PHOTOS_PER_RECORD} 張照片，多選的 ${files.length - picked.length} 張沒有上傳。`);
+    showFormMessage("info", `每筆紀錄最多 ${MAX_PHOTOS_PER_RECORD} 張照片，多選的 ${files.length - picked.length} 張沒有加入。`);
+  }
+}
+
+function setFormPhotoUploading(uploading) {
+  formPhotoUploading = uploading;
+  const saveBtn = document.querySelector("#recordForm button[type='submit']");
+  if (saveBtn) saveBtn.disabled = uploading;
+}
+
+// 按儲存時依序上傳新照片；傳好的立刻算進這筆的照片，失敗的留在表單裡，再按一次儲存會接著傳。
+async function uploadNewFormPhotos() {
+  if (!formNewPhotos.length) return true;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    showFormMessage("error", "目前沒有網路，新照片傳不上去。可以等有網路再按儲存，或先移除新照片存紀錄，之後再編輯補上。");
+    return false;
+  }
+  const session = formPhotoSession;
+  const total = formNewPhotos.length;
+  setFormPhotoUploading(true);
+  try {
+    while (formNewPhotos.length) {
+      showFormMessage("info", `正在上傳照片 ${total - formNewPhotos.length + 1}/${total}…`);
+      let id;
+      try {
+        id = await uploadPhoto(formNewPhotos[0], buildPhotoName(formPhotoIds.length + 1));
+      } catch (error) {
+        console.error("照片上傳失敗", error);
+        if (session === formPhotoSession) {
+          showFormMessage("error", `照片沒有傳上去（${describePhotoUploadError(error)}），紀錄還沒儲存，請再按一次儲存。`);
+        }
+        return false;
+      }
+      if (session !== formPhotoSession) return false;
+      formNewPhotos.shift();
+      formPhotoIds.push(id);
+      renderFormPhotos();
+    }
+    return true;
+  } finally {
+    if (session === formPhotoSession) setFormPhotoUploading(false);
   }
 }
 
 function removeFormPhoto(index) {
-  if (!(index >= 0 && index < formPhotoIds.length)) return;
+  if (formPhotoUploading || !(index >= 0 && index < formPhotoIds.length)) return;
   formPhotoIds.splice(index, 1);
   setDialogFormDirty("modal", true);
   renderFormPhotos();
   showFormMessage("info", "已從這筆紀錄移除，照片檔仍留在雲端硬碟。");
+}
+
+function removeNewFormPhoto(index) {
+  if (formPhotoUploading || !(index >= 0 && index < formNewPhotos.length)) return;
+  formNewPhotos.splice(index, 1);
+  renderFormPhotos();
 }
 
 function openAddModal() {
@@ -4626,6 +4717,7 @@ function handleFuelSubmit(e) {
 
 function handleFormSubmit(e) {
   e.preventDefault();
+  if (formPhotoUploading) return;
   const form = document.getElementById("recordForm");
   if (!form.checkValidity()) {
     showFormMessage("error", "請先補齊必填欄位，並確認數字欄位格式正確。");
@@ -4643,8 +4735,8 @@ function handleFormSubmit(e) {
     showFormMessage("error", "里程與費用不能是負數。");
     return;
   }
-  if (formPhotoPending) {
-    showFormMessage("info", "照片還在上傳，傳完再按儲存。");
+  if (formPhotoPreparing) {
+    showFormMessage("info", "照片還在處理，稍等一下再按儲存。");
     return;
   }
 
@@ -4654,8 +4746,7 @@ function handleFormSubmit(e) {
     category: document.getElementById("formCategory").value,
     detail:   document.getElementById("formDetail").value.trim(),
     cost,
-    note:     document.getElementById("formNote").value.trim(),
-    photos:   formPhotoIds.join(",")
+    note:     document.getElementById("formNote").value.trim()
   };
 
   if (!rec.detail) {
@@ -4688,13 +4779,21 @@ function handleFormSubmit(e) {
     return;
   }
 
-  requestRecordSave(rec, {
+  const finish = () => {
+    const saved = { ...rec, photos: formPhotoIds.join(",") };
+    commitRecordChange(
+      idx === -1 ? { type: "add", after: saved } : { type: "edit", index: idx, before: records[idx], after: saved },
+      { message: idx === -1 ? `已新增${saved.category}紀錄` : "已更新紀錄", close: closeModal }
+    );
+  };
+  // 確定要存了才上傳新照片；上傳失敗時表單留著，紀錄不會先存。沒有新照片就和以前一樣立刻存。
+  return requestRecordSave(rec, {
     editIndex: idx,
     commit: () => {
-      commitRecordChange(
-        idx === -1 ? { type: "add", after: rec } : { type: "edit", index: idx, before: records[idx], after: rec },
-        { message: idx === -1 ? `已新增${rec.category}紀錄` : "已更新紀錄", close: closeModal }
-      );
+      if (!formNewPhotos.length) return finish();
+      return uploadNewFormPhotos().then(uploaded => {
+        if (uploaded) finish();
+      });
     }
   });
 }
@@ -5026,7 +5125,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("formPhotoInput").addEventListener("change", handleFormPhotoInput);
   document.getElementById("formPhotoList").addEventListener("click", event => {
     const button = event.target.closest("[data-photo-remove]");
+    const newButton = event.target.closest("[data-photo-remove-new]");
     if (button) removeFormPhoto(Number(button.dataset.photoRemove));
+    else if (newButton) removeNewFormPhoto(Number(newButton.dataset.photoRemoveNew));
   });
 
   // 目前里程更新

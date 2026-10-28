@@ -448,3 +448,13 @@ test("setupPhotoStorage creates the folder and lists anything already in column 
   assert.match(occupied.logs.join("\n"), /G6：舊的手寫筆記/);
   assert.doesNotMatch(occupied.logs.join("\n"), /G4/);
 });
+
+test("syncState names the photo folder once it exists", () => {
+  const { api, drive } = loadAppsScript([record(1)]);
+  assert.equal(syncState(api).photoFolderId, "");
+
+  api.setupPhotoStorage();
+
+  assert.equal(syncState(api).photoFolderId, drive.folders()[0].id);
+  assert.equal(syncState(api).fingerprint, api.computeRecordsFingerprint_([record(1)]));
+});
