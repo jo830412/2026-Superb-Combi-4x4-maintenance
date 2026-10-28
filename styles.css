@@ -1218,6 +1218,77 @@ body {
 }
 .field-value { min-width: 0; }
 
+/* 照片：紀錄列表與表單裡的照片都連到 Google 雲端硬碟開啟。 */
+.record-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.photo-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--blue);
+  font-size: 0.78rem;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+.photo-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.photo-chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font-size: 0.82rem;
+}
+.photo-chip-link,
+.photo-chip-pending {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+}
+.photo-chip-link {
+  color: var(--blue);
+  text-decoration: none;
+}
+.photo-chip-pending { color: var(--text-secondary); }
+.photo-chip-remove {
+  min-width: 36px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.photo-link:hover,
+.photo-chip-link:hover { text-decoration: underline; }
+.photo-chip-remove:hover { color: var(--red); }
+.photo-link:focus-visible,
+.photo-chip-link:focus-visible,
+.photo-chip-remove:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+@media (max-width: 768px) {
+  .photo-link { min-height: 36px; }
+  .photo-chip-link,
+  .photo-chip-pending { min-height: 44px; }
+  .photo-chip-remove { min-width: 44px; }
+  .photo-add-btn { min-height: 44px; }
+}
+
 /* 列表標題列 */
 .records-header {
   display: grid;

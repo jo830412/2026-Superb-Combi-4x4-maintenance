@@ -82,7 +82,8 @@ test("free-text columns keep values that Sheets would otherwise convert", () => 
     category: "其他",
     cost: 0,
     detail: "0912345678",
-    note: "3/4"
+    note: "3/4",
+    photos: ""
   }];
   const { api, mainSheet } = loadAppsScript(current);
 
@@ -281,4 +282,169 @@ test("the fuel price cache never crosses the Monday price changes", () => {
   assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-05T01:00:00Z")), 3 * 60 * 60);
   // Late Sunday after a week of caching still stops at Monday 00:00.
   assert.equal(api.getFuelPriceCacheSeconds_(new Date("2026-10-11T14:00:00Z")), 2 * 60 * 60);
+});
+
+const crypto = require("node:crypto");
+const { jpegBase64 } = require("./helpers/apps-script-harness");
+
+function withPhotos(value, photos) {
+  return { ...value, photos };
+}
+
+function withoutPhotos({ photos, ...rest }) {
+  return rest;
+}
+
+function upload(api, payload) {
+  return post(api, { action: "uploadPhoto", ...payload });
+}
+
+function taipeiToday() {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+test("photo ids round-trip through the sheet, the fingerprint and the backup", () => {
+  const current = [record(1), record(2)];
+  const withIds = [withPhotos(record(1), "fakePhoto00000001,fakePhoto00000002"), record(2)];
+  const { api, mainSheet, sheets } = loadAppsScript(current);
+
+  const added = post(api, { records: withIds, expectedFingerprint: api.computeRecordsFingerprint_(current), reason: "save" });
+  const state = syncState(api);
+
+  assert.equal(added.status, "success");
+  assert.deepEqual(state.records, withIds);
+  assert.equal(added.fingerprint, state.fingerprint);
+  assert.notEqual(state.fingerprint, api.computeRecordsFingerprint_(current));
+  assert.equal(mainSheet.read(4, 7), "照片");
+  assert.equal(mainSheet.formatAt(5, 7), "@");
+
+  const edited = withIds.map(value => ({ ...value, note: "已確認" }));
+  assert.equal(post(api, { records: edited, expectedFingerprint: state.fingerprint, reason: "save" }).status, "success");
+  const backup = sheets.get("保養紀錄備份");
+  assert.equal(backup.read(1, 10), "照片");
+  assert.equal(backup.read(backup.getLastRow() - 1, 10), "fakePhoto00000001,fakePhoto00000002");
+  assert.equal(backup.formatAt(backup.getLastRow(), 10), "@");
+});
+
+test("records without photos keep the fingerprint they had before the photo column", () => {
+  const current = [record(1), record(2)];
+  const { api } = loadAppsScript(current);
+  const legacy = crypto.createHash("sha256").update(JSON.stringify(current.map(withoutPhotos)), "utf8").digest("hex");
+
+  assert.equal(syncState(api).fingerprint, legacy);
+});
+
+test("an older site that sends records without photos is told to reload and changes nothing", () => {
+  const current = [withPhotos(record(1), "fakePhoto00000001"), record(2)];
+  const { api, events, mainSheet } = loadAppsScript(current);
+
+  const response = post(api, {
+    records: current.map(value => ({ ...withoutPhotos(value), note: "舊版網站改的" })),
+    expectedFingerprint: api.computeRecordsFingerprint_(current),
+    reason: "save"
+  });
+
+  assert.equal(response.status, "rejected");
+  assert.match(response.message, /網站已更新，請重新整理/);
+  assert.deepEqual(plain(api.readRecords_(mainSheet)), current);
+  assert.equal(events.some(event => event.type === "set" || event.type === "clear"), false);
+});
+
+test("photo values must be a short list of Drive file ids", () => {
+  const tooMany = Array.from({ length: 21 }, (_, index) => `fakePhoto${String(index).padStart(8, "0")}`).join(",");
+  for (const photos of ["../../etc/passwd", "<img src=x onerror=alert(1)>", "short", 12, null, tooMany]) {
+    const current = [record(1)];
+    const loaded = loadAppsScript(current);
+    const response = post(loaded.api, {
+      records: [withPhotos(record(1), photos)],
+      expectedFingerprint: loaded.api.computeRecordsFingerprint_(current),
+      reason: "save"
+    });
+    assert.equal(response.status, "rejected", `photos=${photos}`);
+    assert.equal(loaded.events.some(event => event.type === "set" || event.type === "clear"), false);
+  }
+});
+
+test("photo cells edited by hand keep only the file ids", () => {
+  const { api, mainSheet } = loadAppsScript([record(1)]);
+  mainSheet.write(5, 7, "fakePhoto00000001, 手寫備註 ,fakePhoto00000001\nfakePhoto00000002");
+
+  assert.equal(syncState(api).records[0].photos, "fakePhoto00000001,fakePhoto00000002");
+});
+
+test("an uploaded JPEG goes into one photo folder and only its file id comes back", () => {
+  const { api, drive, events } = loadAppsScript([record(1)]);
+
+  const first = upload(api, { name: "2026-09-19 改裝升級 ZL1/卡鉗.jpg", data: jpegBase64() });
+  const second = upload(api, { name: "", data: jpegBase64(128) });
+
+  assert.deepEqual(Object.keys(first).sort(), ["id", "status"]);
+  assert.equal(first.status, "success");
+  assert.equal(second.status, "success");
+  assert.equal(drive.folders().length, 1);
+  assert.equal(drive.folders()[0].name, "2026 Superb Combi 保養照片");
+  const photos = drive.photos();
+  assert.deepEqual(photos.map(photo => photo.id), [first.id, second.id]);
+  assert.deepEqual(photos.map(photo => photo.name), ["2026-09-19 改裝升級 ZL1 卡鉗.jpg", "保養照片.jpg"]);
+  assert.ok(photos.every(photo => photo.parents[0] === drive.folders()[0].id));
+  assert.deepEqual([...photos[1].bytes.subarray(0, 3)], [0xFF, 0xD8, 0xFF]);
+  assert.equal(photos[1].bytes.length, 128);
+  assert.equal(events.some(event => event.type === "set" || event.type === "clear"), false);
+});
+
+test("uploads that are not JPEGs or are too large are rejected before reaching Drive", () => {
+  const { api, drive } = loadAppsScript();
+  const png = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).toString("base64");
+
+  for (const data of [undefined, "", "not base64!", png, jpegBase64(4 * 1024 * 1024 + 3)]) {
+    const response = upload(api, { name: "photo", data });
+    assert.equal(response.status, "rejected");
+  }
+  assert.equal(drive.files.size, 0);
+});
+
+test("each Taipei day accepts at most 60 photo uploads", () => {
+  const loaded = loadAppsScript();
+  const day = new Date("2026-10-28T03:00:00Z");
+
+  for (let count = 0; count < 60; count += 1) loaded.api.reservePhotoUpload_(day);
+  assert.throws(() => loaded.api.reservePhotoUpload_(day), /今天已上傳 60 張照片/);
+  // 00:30 the next day in Taipei is 16:30 UTC.
+  assert.doesNotThrow(() => loaded.api.reservePhotoUpload_(new Date("2026-10-28T16:30:00Z")));
+
+  loaded.properties.set("PHOTO_UPLOAD_COUNT", JSON.stringify({ date: taipeiToday(), count: 60 }));
+  const response = upload(loaded.api, { name: "photo", data: jpegBase64() });
+  assert.equal(response.status, "rejected");
+  assert.equal(loaded.drive.photos().length, 0);
+});
+
+test("a trashed photo folder is replaced, but a Drive outage is reported instead", () => {
+  const { api, drive } = loadAppsScript();
+  assert.equal(upload(api, { name: "a", data: jpegBase64() }).status, "success");
+
+  drive.folders()[0].trashed = true;
+  const afterTrash = upload(api, { name: "b", data: jpegBase64() });
+  assert.equal(afterTrash.status, "success");
+  assert.equal(drive.folders().length, 2);
+  assert.equal(drive.files.get(afterTrash.id).parents[0], drive.folders()[1].id);
+
+  drive.Files.get = () => { throw new Error("API call to drive.files.get failed with error: Internal Error"); };
+  const duringOutage = upload(api, { name: "c", data: jpegBase64() });
+  assert.equal(duringOutage.status, "error");
+  assert.equal(drive.folders().length, 2);
+});
+
+test("setupPhotoStorage creates the folder and lists anything already in column G", () => {
+  const clean = loadAppsScript([record(1), record(2)]);
+  clean.api.setupPhotoStorage();
+  assert.equal(clean.drive.folders().length, 1);
+  assert.match(clean.logs.join("\n"), /drive\.google\.com\/drive\/folders\/fakeFolder00000001/);
+  assert.match(clean.logs.join("\n"), /G 欄是空的/);
+
+  const occupied = loadAppsScript([record(1), record(2)]);
+  occupied.mainSheet.write(4, 7, "");
+  occupied.mainSheet.write(6, 7, "舊的手寫筆記");
+  occupied.api.setupPhotoStorage();
+  assert.match(occupied.logs.join("\n"), /G6：舊的手寫筆記/);
+  assert.doesNotMatch(occupied.logs.join("\n"), /G4/);
 });

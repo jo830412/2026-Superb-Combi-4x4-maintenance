@@ -3,12 +3,12 @@ const SPREADSHEET_ID = "1x2cBTx8BJ2Cy6ly65OWP0xT2ro0LixdPYKjfpb03UXI";
 const SHEET_NAME = "保養紀錄";
 const HEADER_ROW = 4;
 const DATA_START_ROW = 5;
-const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註"];
-// 類別、詳細內容、備註存成純文字，避免「3/4」被轉成日期、「0912…」被轉成數字。
-const TEXT_COLUMNS = [3, 5, 6];
+const HEADERS = ["日期", "里程", "類別", "花費", "詳細內容", "備註", "照片"];
+// 類別、詳細內容、備註、照片存成純文字，避免「3/4」被轉成日期、「0912…」被轉成數字。
+const TEXT_COLUMNS = [3, 5, 6, 7];
 const BACKUP_SHEET_NAME = "保養紀錄備份";
 const BACKUP_HEADERS = ["備份時間", "備份批次", "原因"].concat(HEADERS);
-const BACKUP_TEXT_COLUMNS = [6, 8, 9];
+const BACKUP_TEXT_COLUMNS = [6, 8, 9, 10];
 const MAX_BACKUP_BATCHES = 20;
 const MAX_SYNC_RECORDS = 5000;
 const LAST_SYNC_AT_PROPERTY = "LAST_RECORD_SYNC_AT";
@@ -16,6 +16,16 @@ const NPC_FUEL_PRICE_SOURCE_URL = "https://www.npcgas.com.tw/Consultant/Oil";
 const FUEL_PRICE_CACHE_KEY = "npcFuelPrices_v1";
 const FUEL_PRICE_CACHE_MAX_SECONDS = 3 * 60 * 60;
 const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+// 照片存在擁有者 Google 雲端硬碟的資料夾（不公開），紀錄的「照片」欄只放以逗號分隔的檔案 ID。
+// 只用 drive.file 權限：Apps Script 只碰得到自己建立的檔案。上傳入口不需登入，
+// 所以只收 JPEG，並限制每張大小與每天張數。
+const PHOTO_FOLDER_NAME = "2026 Superb Combi 保養照片";
+const PHOTO_FOLDER_PROPERTY = "PHOTO_FOLDER_ID";
+const PHOTO_UPLOAD_COUNT_PROPERTY = "PHOTO_UPLOAD_COUNT";
+const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
+const PHOTO_DAILY_LIMIT = 60;
+const MAX_PHOTOS_PER_RECORD = 20;
+const PHOTO_ID_PATTERN = /^[A-Za-z0-9_-]{10,200}$/;
 
 function doGet(e) {
   const fuelPriceResponse = routeFuelPriceGet_(e);
@@ -57,7 +67,8 @@ function readRecords_(sheet) {
       category: row[2] || "",
       cost: parseNumber(row[3], 0),
       detail: row[4] || "",
-      note: row[5] || ""
+      note: row[5] || "",
+      photos: normalizePhotoIds_(row[6])
     });
   });
 
@@ -65,6 +76,18 @@ function readRecords_(sheet) {
 }
 
 function doPost(e) {
+  let postData;
+  try {
+    postData = JSON.parse(e && e.postData && e.postData.contents || "");
+  } catch (error) {
+    return createErrorResponse_(createSyncRejection_("同步內容不是有效的 JSON"));
+  }
+  // 上傳照片不必等試算表的鎖，同步正在寫入時也能上傳。
+  if (postData && postData.action === "uploadPhoto") return uploadPhoto_(postData);
+  return syncRecords_(postData);
+}
+
+function syncRecords_(postData) {
   const lock = LockService.getScriptLock();
 
   try {
@@ -73,12 +96,6 @@ function doPost(e) {
     const sheet = getSheet();
     ensureHeaders(sheet);
 
-    let postData;
-    try {
-      postData = JSON.parse(e && e.postData && e.postData.contents || "");
-    } catch (error) {
-      throw createSyncRejection_("同步內容不是有效的 JSON");
-    }
     const sync = normalizeSyncPayload_(postData);
     validateRecordPayload_(sync.records);
 
@@ -126,13 +143,17 @@ function doPost(e) {
       updatedAt: updatedAt
     });
   } catch (err) {
-    return createJsonResponse({
-      status: err && err.name === "SyncSafetyError" ? "rejected" : "error",
-      message: err && err.message ? err.message : String(err)
-    });
+    return createErrorResponse_(err);
   } finally {
     lock.releaseLock();
   }
+}
+
+function createErrorResponse_(err) {
+  return createJsonResponse({
+    status: err && err.name === "SyncSafetyError" ? "rejected" : "error",
+    message: err && err.message ? err.message : String(err)
+  });
 }
 
 function normalizeSyncPayload_(payload) {
@@ -174,7 +195,19 @@ function validateRecordPayload_(records) {
     });
     validateNonNegativeInteger_(record.mileage, "里程", index);
     validateNonNegativeInteger_(record.cost, "花費", index);
+    validatePhotoIds_(record.photos, index);
   });
+}
+
+// 舊版網站送來的紀錄沒有 photos：擋下來，免得把雲端的照片欄清空。
+function validatePhotoIds_(value, index) {
+  if (value === undefined) {
+    throw createSyncRejection_("網站已更新，請重新整理（主畫面 App 請關掉再開）後再同步。");
+  }
+  const ids = typeof value === "string" ? splitPhotoIds_(value) : null;
+  if (!ids || ids.length > MAX_PHOTOS_PER_RECORD || ids.some(function(id) { return !PHOTO_ID_PATTERN.test(id); })) {
+    throw createSyncRejection_("第 " + (index + 1) + " 筆紀錄的照片格式不正確");
+  }
 }
 
 function validateNonNegativeInteger_(value, label, index) {
@@ -193,7 +226,8 @@ function normalizeRecordsForStorage_(records) {
       category: normalizeText_(record.category),
       cost: record.cost === "" || record.cost == null ? 0 : Number(record.cost),
       detail: normalizeText_(record.detail),
-      note: normalizeText_(record.note)
+      note: normalizeText_(record.note),
+      photos: normalizePhotoIds_(record.photos)
     };
   });
 }
@@ -202,15 +236,34 @@ function normalizeText_(value) {
   return value == null ? "" : String(value);
 }
 
+function splitPhotoIds_(value) {
+  return normalizeText_(value).split(/[\s,]+/).filter(Boolean);
+}
+
+// 只留下像檔案 ID 的內容：試算表裡手動改過的照片欄不會讓同步卡住。
+function normalizePhotoIds_(value) {
+  const ids = [];
+  splitPhotoIds_(value).forEach(function(id) {
+    if (PHOTO_ID_PATTERN.test(id) && ids.indexOf(id) < 0) ids.push(id);
+  });
+  return ids.slice(0, MAX_PHOTOS_PER_RECORD).join(",");
+}
+
 function normalizeReason_(value) {
   const reason = normalizeText_(value).trim();
   return (reason || "save").slice(0, 80);
 }
 
+// 沒有照片的紀錄沿用加入照片欄之前的格式，既有資料的雲端版本不會因為這次更新而改變。
 function computeRecordsFingerprint_(records) {
   const digest = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
-    JSON.stringify(records),
+    JSON.stringify(records.map(function(record) {
+      if (record.photos) return record;
+      const withoutPhotos = Object.assign({}, record);
+      delete withoutPhotos.photos;
+      return withoutPhotos;
+    })),
     Utilities.Charset.UTF_8
   );
   return digest.map(function(byte) {
@@ -250,7 +303,8 @@ function createBackupSnapshot_(records, reason) {
       record.category,
       record.cost,
       record.detail,
-      record.note
+      record.note,
+      record.photos
     ];
   });
   const startRow = Math.max(2, backupSheet.getLastRow() + 1);
@@ -289,6 +343,115 @@ function createSyncRejection_(message) {
   return error;
 }
 
+// 網站先在手機上壓縮成 JPEG，這裡存進照片資料夾，只回傳檔案 ID。
+function uploadPhoto_(payload) {
+  try {
+    const bytes = decodePhotoData_(payload.data);
+    const folderId = reservePhotoUpload_(new Date());
+    const file = Drive.Files.create({
+      name: normalizePhotoName_(payload.name),
+      mimeType: "image/jpeg",
+      parents: [folderId]
+    }, Utilities.newBlob(bytes, "image/jpeg"));
+    return createJsonResponse({ status: "success", id: file.id });
+  } catch (err) {
+    return createErrorResponse_(err);
+  }
+}
+
+function decodePhotoData_(data) {
+  if (typeof data !== "string" || !data) throw createSyncRejection_("缺少照片內容");
+  if (data.length > Math.ceil(PHOTO_MAX_BYTES / 3) * 4) {
+    throw createSyncRejection_("照片超過 " + PHOTO_MAX_BYTES / 1024 / 1024 + " MB");
+  }
+  let bytes;
+  try {
+    bytes = Utilities.base64Decode(data);
+  } catch (err) {
+    throw createSyncRejection_("照片內容格式不正確");
+  }
+  // JPEG 檔頭是 FF D8 FF；Apps Script 的位元組是有號數。
+  const header = [0, 1, 2].map(function(index) { return ((bytes[index] || 0) + 256) % 256; });
+  if (header[0] !== 0xFF || header[1] !== 0xD8 || header[2] !== 0xFF) {
+    throw createSyncRejection_("只接受 JPEG 照片");
+  }
+  return bytes;
+}
+
+// 計數與找資料夾都在鎖內：同時上傳也不會超過每日上限，或建出兩個資料夾。
+function reservePhotoUpload_(now) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const today = new Date(now.getTime() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
+    let usage = null;
+    try {
+      usage = JSON.parse(properties.getProperty(PHOTO_UPLOAD_COUNT_PROPERTY) || "null");
+    } catch (err) {
+      usage = null;
+    }
+    const count = usage && usage.date === today ? Number(usage.count) || 0 : 0;
+    if (count >= PHOTO_DAILY_LIMIT) {
+      throw createSyncRejection_("今天已上傳 " + PHOTO_DAILY_LIMIT + " 張照片，明天再試。");
+    }
+    const folderId = getPhotoFolderId_();
+    properties.setProperty(PHOTO_UPLOAD_COUNT_PROPERTY, JSON.stringify({ date: today, count: count + 1 }));
+    return folderId;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getPhotoFolderId_() {
+  const properties = PropertiesService.getScriptProperties();
+  const savedId = properties.getProperty(PHOTO_FOLDER_PROPERTY);
+  if (savedId) {
+    try {
+      const saved = Drive.Files.get(savedId, { fields: "id,trashed" });
+      if (saved && !saved.trashed) return saved.id;
+    } catch (err) {
+      // 資料夾被永久刪除才重建；其他錯誤（例如雲端硬碟暫時連不上）直接回報。
+      if (!/not found/i.test(err && err.message || "")) throw err;
+    }
+  }
+  const folder = Drive.Files.create({ name: PHOTO_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" });
+  properties.setProperty(PHOTO_FOLDER_PROPERTY, folder.id);
+  return folder.id;
+}
+
+function normalizePhotoName_(value) {
+  const name = normalizeText_(value)
+    .replace(/\.jpe?g$/i, "")
+    .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return (name || "保養照片") + ".jpg";
+}
+
+// 部署這一版之前，在 Apps Script 編輯器執行一次：授權雲端硬碟（只限這個專案建立的檔案）、
+// 建立照片資料夾，並確認試算表的照片欄（G 欄）沒有其他內容。
+function setupPhotoStorage() {
+  console.log("照片資料夾：https://drive.google.com/drive/folders/" + getPhotoFolderId_());
+
+  const sheet = getSheet();
+  const column = HEADERS.indexOf("照片") + 1;
+  const lastRow = sheet.getLastRow();
+  const cells = lastRow >= HEADER_ROW
+    ? sheet.getRange(HEADER_ROW, column, lastRow - HEADER_ROW + 1, 1).getDisplayValues()
+    : [];
+  const occupied = [];
+  cells.forEach(function(row, offset) {
+    const value = row[0];
+    const expected = offset === 0 ? HEADERS[column - 1] : normalizePhotoIds_(value);
+    if (value !== "" && value !== expected) occupied.push("G" + (HEADER_ROW + offset) + "：" + value);
+  });
+  console.log(occupied.length
+    ? "注意：G 欄已有其他內容，同步照片時會被覆寫：\n" + occupied.slice(0, 10).join("\n")
+    : "G 欄是空的，可以放照片。");
+}
+
 function getSheet() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let sheet = ss.getSheetByName(SHEET_NAME);
@@ -316,7 +479,8 @@ function writeRecords_(sheet, records) {
     record.category,
     record.cost,
     record.detail,
-    record.note
+    record.note,
+    record.photos
   ]);
   const previousLastRow = sheet.getLastRow();
 

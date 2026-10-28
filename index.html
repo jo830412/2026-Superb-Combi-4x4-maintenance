@@ -16,7 +16,7 @@
     // 在樣式套用前決定主題，避免開啟時先閃一下深色。
     try { if (localStorage.getItem("newSuperbTheme_v1") === "light") document.documentElement.dataset.theme = "light"; } catch (error) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.10.22.1" />
+  <link rel="stylesheet" href="styles.css?v=2026.10.28.1" />
 </head>
 <body>
   <!-- 頂部導覽列 -->
@@ -28,7 +28,7 @@
           <h1 class="logo-title"><span class="logo-title-full">2026 Superb Combi 4x4 保養維修紀錄</span><span class="logo-title-short">Superb 保養紀錄</span></h1>
           <div class="logo-meta">
             <p class="logo-sub" id="vehicleInfo">2026 Superb Combi 4x4</p>
-            <span class="version-badge" id="appVersion">v2026.10.22.1</span>
+            <span class="version-badge" id="appVersion">v2026.10.28.1</span>
           </div>
         </div>
       </div>
@@ -186,7 +186,7 @@
         <button class="btn btn-ghost" id="btnLegacyStashDownload" type="button" hidden>下載升級前的本機資料</button>
         <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden/>
       </div>
-      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.22.1</span></p>
+      <p class="data-management-meta">版本 <span id="appVersionDetail">v2026.10.28.1</span></p>
     </details>
   </section>
 
@@ -298,6 +298,13 @@
             <div class="form-group form-group-full">
               <label class="form-label" for="formNote">備註</label>
               <input type="text" id="formNote" class="form-input" placeholder="任何補充說明..."/>
+            </div>
+            <div class="form-group form-group-full">
+              <span class="form-label" id="formPhotoLabel">照片</span>
+              <div class="photo-list" id="formPhotoList" role="group" aria-labelledby="formPhotoLabel" hidden></div>
+              <button type="button" class="btn btn-ghost btn-sm photo-add-btn" id="btnAddPhoto">📷 加照片</button>
+              <input id="formPhotoInput" type="file" accept="image/*" multiple hidden/>
+              <div class="form-help">保養單、施工單、改裝件都可以拍；照片存在你的 Google 雲端硬碟，不公開。</div>
             </div>
             <div class="form-message" id="formMessage"></div>
           </div>
@@ -591,6 +598,6 @@
     <button id="toastAction" class="btn btn-ghost btn-sm" type="button" hidden></button>
   </div>
 
-  <script src="app.js?v=2026.10.22.1" defer></script>
+  <script src="app.js?v=2026.10.28.1" defer></script>
 </body>
 </html>
